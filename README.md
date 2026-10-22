@@ -28,6 +28,17 @@ python -m venv .venv
 pip install -e .
 ```
 
+### Configuração (`.env`)
+
+As definições (credenciais da OneTrust, pasta de relatórios, porta da consola, proxy) podem ficar num ficheiro `.env` na pasta onde corre o comando. Copie o modelo e preencha só o que precisar:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+O `.env` é lido por `agent-security` e por `agent-security-console`. As variáveis já definidas no terminal têm prioridade e os valores vazios são ignorados. O `.env` está no `.gitignore` e nunca deve ir para o repositório; o `.env.example` não tem segredos.
+
 Para a consola, use `pip install -e ".[console]"`. Para desenvolvimento (testes, lint e tipos), use `pip install -e ".[dev]"`.
 
 ## Utilização
@@ -112,7 +123,7 @@ $env:ONETRUST_CLIENT_SECRET = "..."
 $env:ONETRUST_LANGUAGE = "pt"                    # opcional (por omissão, en)
 ```
 
-As credenciais vêm **só do ambiente**: nunca as passe por argumentos nem as escreva em ficheiros. Opções: `--onetrust-language`, `--onetrust-domain-id <uuid>` (repetível, restringe a consulta a domínios do tenant) e `--no-cookie-classification`.
+As credenciais vêm **só do ambiente** ou do ficheiro local `.env` (ver abaixo): nunca as passe por argumentos. Opções: `--onetrust-language`, `--onetrust-domain-id <uuid>` (repetível, restringe a consulta a domínios do tenant) e `--no-cookie-classification`.
 
 Só os nomes dos cookies, nunca os valores, são enviados ao seu tenant. Um cookie ausente do catálogo aparece como "Not found in OneTrust" e não é considerado uma falha de segurança. Cada execução consulta no máximo 300 nomes.
 

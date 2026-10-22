@@ -272,6 +272,13 @@ class BuildConfigsTests(unittest.TestCase):
         self.assertEqual(json.loads(printed.call_args[0][0])["domains"], rows)
 
 
+def setUpModule():
+    # cli.main reads ./.env; tests must not depend on (or copy into os.environ) a developer's local settings.
+    patcher = mock.patch.object(cli, "load_env_file", return_value=[])
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
 class MainTests(unittest.TestCase):
     def test_exit_code_reflects_status_and_summary_is_printed(self):
         with (

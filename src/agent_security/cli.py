@@ -11,6 +11,7 @@ from pathlib import Path
 
 from agent_security.batch import run_batch
 from agent_security.config import DEFAULT_MAX_PAGES, HARD_MAX_PAGES, MIN_DELAY_SECONDS, ScanConfig
+from agent_security.envfile import load_env_file
 from agent_security.network import FetchResult, parse_proxy
 from agent_security.onetrust import config_from_env
 from agent_security.report import write_reports
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--onetrust-domain-id", action="append", default=[], help="Restrict to a domain id (repeatable)"
     )
     cookies.add_argument("--no-cookie-classification", action="store_true", help="Never call OneTrust")
-    parser.add_argument("--output-dir", default="reports")
+    parser.add_argument("--output-dir", default=os.environ.get("AGENT_SECURITY_REPORTS_DIR") or "reports")
     parser.add_argument("--quiet", action="store_true")
     return parser
 
@@ -137,6 +138,7 @@ def build_configs(args: argparse.Namespace, env: Mapping[str, str]) -> list[Scan
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    load_env_file()  # Settings from ./.env; variables already set in the shell win.
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

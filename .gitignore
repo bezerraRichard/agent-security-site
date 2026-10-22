@@ -7,3 +7,8 @@ dist/
 .ruff_cache/
 # Generated scan output may contain internal URLs and cookie names.
 reports/
+
+# Local settings with credentials.
+.env
+.env.*
+!.env.example

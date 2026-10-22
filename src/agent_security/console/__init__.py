@@ -8,6 +8,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from agent_security.envfile import load_env_file
+
 APP = Path(__file__).with_name("app.py")
 THEME = {
     "base": "light",
@@ -19,9 +21,14 @@ THEME = {
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    load_env_file()  # Settings from ./.env; variables already set in the shell win.
     parser = argparse.ArgumentParser(prog="agent-security-console", description="HTTP Security console (Streamlit).")
-    parser.add_argument("--output-dir", default="reports", help="Folder where reports are written and read")
-    parser.add_argument("--port", type=int, default=8501)
+    parser.add_argument(
+        "--output-dir",
+        default=os.environ.get("AGENT_SECURITY_REPORTS_DIR") or "reports",
+        help="Folder where reports are written and read",
+    )
+    parser.add_argument("--port", type=int, default=int(os.environ.get("AGENT_SECURITY_CONSOLE_PORT") or 8501))
     args = parser.parse_args(argv)
     try:
         from streamlit.web import cli as streamlit_cli
