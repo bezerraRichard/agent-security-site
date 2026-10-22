@@ -16,6 +16,7 @@ from agent_security.cookies import observe_cookies
 from agent_security.crawler import DEPTH_SKIP, CrawlOutcome, crawl
 from agent_security.discovery import Robots, sitemap_urls
 from agent_security.findings import group_findings, summarize
+from agent_security.fingerprint import detect_platform
 from agent_security.network import FetchResult, Route, candidate_routes, select_route
 from agent_security.onetrust import OneTrustClient, classify_cookies
 
@@ -144,6 +145,7 @@ def run_scan(config: ScanConfig, progress: Progress | None = None) -> dict[str, 
         "status": decide_status(outcome, route, assessed),
         "methodology": METHODOLOGY,
         "route": {"selected": route.name if route else None, "attempts": attempts},
+        "platform": detect_platform(outcome.pages),
         "scope": {
             "allowed_hosts": sorted(config.allowed_hosts),
             "max_pages": config.max_pages,

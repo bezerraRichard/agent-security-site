@@ -200,6 +200,30 @@ class BitsightAlignedRuleTests(unittest.TestCase):
         self.assertEqual(analyze_page(url="https://a.example.com/x?page=1&sort=asc"), [])
 
 
+class MultiplePolicyTests(unittest.TestCase):
+    def test_every_enforced_policy_is_evaluated(self):
+        # The second header carries the effective script policy (seen on a real AEM site).
+        pairs = without("Content-Security-Policy") + (
+            ("Content-Security-Policy", "object-src 'none'; base-uri 'self'"),
+            ("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'"),
+            ("X-Frame-Options", "SAMEORIGIN"),
+        )
+        found = analyze(pairs)
+        self.assertEqual(rules(found), ["CSP-002", "CSP-003"])
+        self.assertIn(" | ", found[0]["evidence"])
+
+    def test_a_stricter_policy_blocks_what_another_allows(self):
+        pairs = without("Content-Security-Policy") + (
+            ("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline' 'unsafe-eval'"),
+            ("Content-Security-Policy", "script-src 'self'; frame-ancestors 'none'"),
+        )
+        self.assertEqual(analyze(pairs), [])
+
+    def test_report_only_policy_is_informational(self):
+        pairs = GOOD + (("Content-Security-Policy-Report-Only", "default-src 'self'; report-uri /csp"),)
+        self.assertEqual(rules(analyze(pairs)), ["CSP-004"])
+
+
 class AddFindingTests(unittest.TestCase):
     def test_appends_a_complete_finding(self):
         findings = []

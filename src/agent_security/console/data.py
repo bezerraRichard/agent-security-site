@@ -6,6 +6,7 @@ import json
 import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -265,6 +266,46 @@ def cookie_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "Atributos": cookie["attributes"] or "—",
                 "Hosts": ", ".join(cookie.get("hosts") or []),
                 "Descrição": info.get("description") or "",
+            }
+        )
+    return rows
+
+
+PLAN_STATE_FILE = "action-plan-state.json"
+
+
+def load_plan_state(directory: Path) -> dict[str, dict[str, Any]]:
+    """Saved status, owner and note per action key; an unreadable file counts as empty."""
+    try:
+        state = json.loads((directory / PLAN_STATE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in state.items() if isinstance(v, dict)} if isinstance(state, dict) else {}
+
+
+def save_action_state(directory: Path, key: str, **fields: str) -> dict[str, dict[str, Any]]:
+    """Merge ``fields`` into one action's saved state and write the file atomically."""
+    state = load_plan_state(directory)
+    entry = state.setdefault(key, {})
+    entry.update(fields)
+    entry["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = directory / f".{PLAN_STATE_FILE}.tmp"
+    temporary.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(directory / PLAN_STATE_FILE)
+    return state
+
+
+def platform_rows(entries: list[ReportEntry]) -> list[dict[str, Any]]:
+    rows = []
+    for entry in entries:
+        platform = entry.report.get("platform")
+        rows.append(
+            {
+                "Domínio": entry.host,
+                "CMS": (platform or {}).get("cms") or ("—" if platform else "Não detetado (análise anterior)"),
+                "CDN": (platform or {}).get("cdn") or "—",
+                "Outras tecnologias": ", ".join((platform or {}).get("technologies") or []) or "—",
             }
         )
     return rows

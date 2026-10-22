@@ -9,6 +9,9 @@ from unittest import mock
 from agent_security import onetrust as ot
 
 SECRET = "s3cr3t-value-that-must-not-leak"
+COOKIE_ID = "5dd32a8b-de66-42d1-a4d8-0000b6a10b1a"
+WARNED_ID = "6ee43b9c-ef77-43e2-b5e9-1111c7b21c2b"
+FORBIDDEN_ID = "7ff54cad-f088-44f3-86fa-2222d8c32d3c"
 
 
 class FakeOneTrust(http.server.BaseHTTPRequestHandler):
@@ -82,11 +85,24 @@ class FakeOneTrust(http.server.BaseHTTPRequestHandler):
                         "lifespan": "PERSISTENT",
                     },
                 ],
-                "nocat": [{"cookieName": "nocat", "host": "x.com"}],
+                "nocat": [{"cookieName": "nocat", "host": "x.com", "cookieId": COOKIE_ID}],
+                "warned": [{"cookieName": "warned", "cookieId": WARNED_ID, "displayGroupName": "Functional"}],
+                "forbidden": [{"cookieName": "forbidden", "cookieId": FORBIDDEN_ID}],
                 "partial": [{"cookieName": "partial-extra", "displayGroupName": "Other"}],
             }
             return self._json(200, {"content": catalog.get(name, []), "last": True})
         self._json(404, {})
+
+    def do_PUT(self):
+        state = FakeOneTrust.state
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode())
+        if self.path != ot.UPDATE_COOKIE_PATH:
+            return self._json(404, {})
+        state.setdefault("updates", []).append({"auth": self.headers.get("Authorization"), "body": body})
+        if body["cookieId"] == FORBIDDEN_ID:
+            return self._json(403, {})
+        errors = ["category not applied to manual cookie"] if body["cookieId"] == WARNED_ID else []
+        return self._json(200, {"status": "SUCCESS", "errorMessages": errors})
 
     def log_message(self, *args):
         pass
@@ -217,6 +233,73 @@ class OneTrustTests(unittest.TestCase):
         client = ot.OneTrustClient(config, [dead, direct], 3, base_url=self.base)
         self.assertEqual(len(client.find_cookies("affinity")), 1)
         self.assertEqual(client.route, "direct")
+
+    def test_classification_keeps_the_ids_needed_to_recategorize(self):
+        result = ot.describe_match([{"cookieName": "x", "cookieId": COOKIE_ID, "displayGroupId": "g1"}], "x", [])
+        self.assertEqual((result["cookie_id"], result["category_id"]), (COOKIE_ID, "g1"))
+
+    def change(self, name, cookie_id, category="C0001"):
+        return ot.CategoryChange(cookie_id, name, "x.com", None, category)
+
+    def test_category_changes_are_verified_applied_and_audited(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            audit = Path(directory) / "audit.jsonl"
+            results = ot.apply_category_changes(
+                make_client(self.base),
+                [
+                    self.change("nocat", COOKIE_ID, "C0002"),
+                    self.change("warned", WARNED_ID),
+                    self.change("gone", "8aa65dbe-a199-45a4-97ab-3333e9d43e4d"),
+                ],
+                audit,
+            )
+            lines = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([r["status"] for r in results], ["applied", "partial", "skipped"])
+        self.assertEqual(results[1]["before"], "Functional")
+        self.assertIn("manual cookie", results[1]["detail"])
+        self.assertEqual(lines, results)
+        self.assertNotIn(SECRET, json.dumps(lines))
+        update = FakeOneTrust.state["updates"][0]
+        self.assertEqual(update["body"], {"cookieId": COOKIE_ID, "customCategoryName": "C0002"})
+        self.assertTrue(update["auth"].startswith("Bearer tok"))
+        self.assertEqual(len(FakeOneTrust.state["updates"]), 2)  # the vanished cookie was never written
+
+    def test_a_permission_error_stops_the_remaining_changes(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            results = ot.apply_category_changes(
+                make_client(self.base),
+                [self.change("forbidden", FORBIDDEN_ID), self.change("nocat", COOKIE_ID)],
+                Path(directory) / "audit.jsonl",
+            )
+        self.assertEqual([r["status"] for r in results], ["failed", "not_run"])
+        self.assertIn("COOKIE_READ", results[0]["detail"])
+        self.assertEqual(len(FakeOneTrust.state["updates"]), 1)
+
+    def test_changes_are_validated_before_anything_is_sent(self):
+        for changes in (
+            [],
+            [self.change("a", "not-a-uuid")],
+            [self.change("a", COOKIE_ID, "C0001; DROP")],
+            [self.change("a", COOKIE_ID), self.change("b", COOKIE_ID)],
+            [self.change(f"c{n}", f"5dd32a8b-de66-42d1-a4d8-{n:012d}") for n in range(ot.MAX_CHANGES_PER_RUN + 1)],
+        ):
+            with self.assertRaises(ValueError):
+                ot.validate_changes(changes)
+
+    def test_write_credentials_are_separate_and_opt_in(self):
+        env = {"ONETRUST_HOSTNAME": "app-eu.onetrust.com", "ONETRUST_CLIENT_ID": "r", "ONETRUST_CLIENT_SECRET": "s"}
+        self.assertIsNone(ot.write_config_from_env(env))
+        config = ot.write_config_from_env(
+            {**env, "ONETRUST_WRITE_CLIENT_ID": "w", "ONETRUST_WRITE_CLIENT_SECRET": SECRET}
+        )
+        self.assertEqual((config.client_id, config.scope), ("w", "COOKIE"))
+        self.assertNotIn(SECRET, repr(config))
 
 
 if __name__ == "__main__":

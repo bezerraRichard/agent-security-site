@@ -1,0 +1,146 @@
+import unittest
+
+from agent_security import actions
+from agent_security.findings import group_findings
+
+AEM_CLOUD_PLATFORM = {"cdn": "Fastly", "cms": "Adobe Experience Manager as a Cloud Service", "technologies": []}
+
+
+def report(host, findings=(), platform=None, inventory=(), classification="ok"):
+    groups = group_findings(
+        [
+            {
+                "severity": severity,
+                "rule": rule,
+                "title": title,
+                "evidence": "e",
+                "expected": "x",
+                "remediation": "r",
+                "url": f"https://{host}/{n}",
+            }
+            for rule, severity, title, n in findings
+        ]
+    )
+    return {
+        "target": f"https://{host}/",
+        "groups": groups,
+        "platform": platform,
+        "cookies": {"classification": {"status": classification}, "inventory": list(inventory)},
+    }
+
+
+class BuildActionsTests(unittest.TestCase):
+    def test_findings_merge_across_domains_and_are_prioritised(self):
+        plan = actions.build_actions(
+            [
+                report("a.example.com", [("CSP-002", "Critical", "CSP allows unsafe-eval", 1)]),
+                report(
+                    "b.example.com",
+                    [
+                        ("CSP-002", "Critical", "CSP allows unsafe-eval", 1),
+                        ("HDR-PP-001", "Low", "Permissions-Policy missing", 1),
+                    ],
+                ),
+            ]
+        )
+        self.assertEqual([a.key for a in plan], ["CSP-002", "HDR-PP-001"])
+        self.assertEqual(plan[0].domains, ["a.example.com", "b.example.com"])
+        self.assertEqual((plan[0].priority, plan[0].pages), ("P1", 2))
+        self.assertEqual(plan[0].bitsight, "Content Security Policy Configurations")
+        self.assertEqual(plan[1].priority, "P4")
+
+    def test_header_fixes_target_the_detected_platform(self):
+        finding = [("HDR-XCTO-001", "Medium", "X-Content-Type-Options missing", 1)]
+        [aem] = actions.build_actions([report("a.example.com", finding, AEM_CLOUD_PLATFORM)])
+        self.assertEqual(aem.owner, "Adobe AEM · CDN (cdn.yaml, Config Pipeline)")
+        self.assertEqual(aem.snippet_language, "yaml")
+        self.assertIn("respHeader: X-Content-Type-Options", aem.snippet)
+        self.assertIn('value: "nosniff"', aem.snippet)
+        [generic] = actions.build_actions([report("b.example.com", finding)])
+        self.assertEqual(generic.owner, "Servidor web / reverse proxy")
+        self.assertIn('Header always set X-Content-Type-Options "nosniff"', generic.snippet)
+        self.assertIn("curl -sI https://b.example.com/", generic.verify)
+
+    def test_cookie_actions_are_per_cookie_and_name_the_owner(self):
+        findings = [
+            ("COOKIE-SAMESITE", "Medium", "Cookie affinity missing SameSite", 1),
+            ("COOKIE-HTTPONLY", "Medium", "Cookie OptanonConsent missing HttpOnly flag", 1),
+        ]
+        plan = {a.key: a for a in actions.build_actions([report("a.example.com", findings, AEM_CLOUD_PLATFORM)])}
+        self.assertEqual(plan["COOKIE-SAMESITE:affinity"].owner, "Adobe AEM · cookie de afinidade da plataforma")
+        self.assertIn("suporte Adobe", " ".join(plan["COOKIE-SAMESITE:affinity"].steps))
+        self.assertEqual(plan["COOKIE-HTTPONLY:OptanonConsent"].owner, "OneTrust · script de consentimento")
+        self.assertIn("risco aceite", " ".join(plan["COOKIE-HTTPONLY:OptanonConsent"].steps))
+
+    def test_onetrust_actions_from_cookie_classification(self):
+        inventory = [
+            {"name": "_ga", "classification": {"status": "classified", "category": "Performance Cookies"}},
+            {"name": "sid", "classification": {"status": "classified", "category": "Strictly Necessary Cookies"}},
+            {"name": "mystery", "classification": {"status": "not_found"}},
+            {"name": "blank", "classification": {"status": "uncategorized"}},
+        ]
+        plan = {a.key: a for a in actions.build_actions([report("a.example.com", inventory=inventory)])}
+        self.assertEqual(set(plan), {"ONETRUST-BEFORE-CONSENT", "ONETRUST-UNCATEGORIZED", "ONETRUST-NOT-FOUND"})
+        self.assertIn("_ga (Performance Cookies)", plan["ONETRUST-BEFORE-CONSENT"].steps[0])
+        self.assertNotIn("sid", plan["ONETRUST-BEFORE-CONSENT"].steps[0])
+        self.assertIn(actions.ONETRUST_UPDATE_COOKIE, " ".join(plan["ONETRUST-UNCATEGORIZED"].steps))
+        unconfigured = actions.build_actions([report("a.example.com", classification="not_configured")])
+        self.assertEqual([a.key for a in unconfigured], ["ONETRUST-NOT-CONFIGURED"])
+
+    def test_code_fixes_go_to_front_end_and_report_only_policy_is_linked(self):
+        findings = [
+            ("CSP-002", "Critical", "CSP allows unsafe-eval", 1),
+            ("CSP-004", "Info", "Content-Security-Policy-Report-Only present (not enforced)", 1),
+        ]
+        plan = {a.key: a for a in actions.build_actions([report("a.example.com", findings, AEM_CLOUD_PLATFORM)])}
+        self.assertEqual(plan["CSP-002"].owner, "Front-end AEM e gestão de tags")
+        self.assertIn("Report-Only", plan["CSP-002"].steps[0])
+        self.assertEqual(plan["CSP-004"].severity, "High")
+        self.assertIn(plan["CSP-004"].priority, {"P1", "P2"})
+        alone = actions.build_actions([report("b.example.com", findings[1:])])
+        self.assertEqual((alone[0].severity, alone[0].priority), ("Info", "P4"))
+
+    def test_every_rule_has_a_playbook(self):
+        from agent_security.taxonomy import RULE_INFO
+
+        self.assertEqual(set(actions.PLAYBOOKS), set(RULE_INFO))
+
+
+class OutputTests(unittest.TestCase):
+    def plan(self):
+        findings = [
+            ("HDR-XCTO-001", "Medium", "X-Content-Type-Options missing", 1),
+            ("HDR-HSTS-001", "High", "Strict-Transport-Security missing", 1),
+            ("HDR-HSTS-003", "Info", "Strict-Transport-Security without preload", 2),
+            ("CSP-000", "High", "Content-Security-Policy missing", 1),
+        ]
+        return actions.build_actions([report("a.example.com", findings, AEM_CLOUD_PLATFORM)])
+
+    def test_cdn_config_combines_headers_and_leaves_csp_out(self):
+        config = actions.aem_cdn_config(self.plan())
+        self.assertIn('kind: "CDN"', config)
+        self.assertIn('value: "max-age=31536000; includeSubDomains"', config)
+        self.assertNotIn("includeSubDomains; preload", config)
+        self.assertEqual(config.count("respHeader: Strict-Transport-Security"), 1)
+        self.assertIn("respHeader: X-Content-Type-Options", config)
+        self.assertNotIn("respHeader: Content-Security-Policy", config)
+        self.assertEqual(actions.aem_cdn_config([]), "")
+
+    def test_yaml_values_keep_csp_quotes(self):
+        snippet, _ = actions.header_snippet(actions.Platform(cms=actions.AEM_CLOUD), "X", "default-src 'self' \"a\"")
+        self.assertIn('value: "default-src \'self\' \\"a\\""', snippet)
+
+    def test_rows_and_markdown_use_saved_state(self):
+        plan = self.plan()
+        state = {plan[0].key: {"status": "Em curso", "owner": "Equipa AEM", "note": "sprint 12"}}
+        row = actions.action_rows(plan, state)[0]
+        self.assertEqual((row["Estado"], row["Responsável"], row["Nota"]), ("Em curso", "Equipa AEM", "sprint 12"))
+        self.assertEqual(actions.action_rows(plan, {})[0]["Estado"], "Por fazer")
+        markdown = actions.markdown_plan(plan, state, "Plano")
+        self.assertTrue(markdown.startswith("# Plano"))
+        self.assertIn("**Estado:** Em curso", markdown)
+        self.assertIn("```yaml", markdown)
+
+
+if __name__ == "__main__":
+    unittest.main()

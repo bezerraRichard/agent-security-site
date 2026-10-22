@@ -117,8 +117,18 @@ def _check_hsts(headers: Any, emit: Emit) -> None:
         )
 
 
-def _check_csp(policy: str | None, emit: Emit) -> dict[str, list[str]]:
-    if not policy:
+def _script_sources(directives: dict[str, list[str]]) -> list[str] | None:
+    """Sources a policy allows for scripts, or None when it does not restrict scripts at all."""
+    return directives.get("script-src", directives.get("default-src"))
+
+
+def _allows_inline(sources: list[str]) -> bool:
+    return "'unsafe-inline'" in sources and not any(_INLINE_OVERRIDE.fullmatch(s) for s in sources)
+
+
+def _check_csp(policies: list[str], emit: Emit) -> None:
+    """Evaluate every enforced policy together: browsers apply all of them, so a script runs only if each allows it."""
+    if not policies:
         emit(
             "High",
             "CSP-000",
@@ -127,37 +137,50 @@ def _check_csp(policy: str | None, emit: Emit) -> dict[str, list[str]]:
             "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
             "Define and test a restrictive CSP appropriate to the site before enforcement.",
         )
-        return {}
-    directives = parse_csp(policy)
-    if "default-src" not in directives:
+        return
+    evidence = " | ".join(policies)
+    parsed = [parse_csp(policy) for policy in policies]
+    if not any("default-src" in directives for directives in parsed):
         emit(
             "Medium",
             "CSP-001",
             "CSP missing default-src",
-            policy,
+            evidence,
             "default-src 'self'",
             "Add an appropriate default-src directive after validating application dependencies.",
         )
-    script_sources = directives.get("script-src", directives.get("default-src", []))
-    if "'unsafe-eval'" in script_sources:
+    restricting = [sources for sources in map(_script_sources, parsed) if sources is not None]
+    if restricting and all("'unsafe-eval'" in sources for sources in restricting):
         emit(
             "Critical",
             "CSP-002",
             "CSP allows unsafe-eval",
-            policy,
+            evidence,
             "script-src without 'unsafe-eval'",
             "Remove unsafe-eval and refactor code that requires dynamic evaluation.",
         )
-    if "'unsafe-inline'" in script_sources and not any(_INLINE_OVERRIDE.fullmatch(s) for s in script_sources):
+    if restricting and all(_allows_inline(sources) for sources in restricting):
         emit(
             "High",
             "CSP-003",
             "CSP allows unsafe-inline in scripts",
-            policy,
+            evidence,
             "script-src with nonce or hash and without 'unsafe-inline'",
             "Use nonces or hashes and remove unsafe inline scripts where practical.",
         )
-    return directives
+
+
+def _check_csp_report_only(policies: list[str], emit: Emit) -> None:
+    if policies:
+        emit(
+            "Info",
+            "CSP-004",
+            "Content-Security-Policy-Report-Only present (not enforced)",
+            " | ".join(policies),
+            "The tested policy enforced as Content-Security-Policy",
+            "Review the violation reports and, once they are clean, promote the report-only policy to "
+            "Content-Security-Policy.",
+        )
 
 
 _SIMPLE_HEADERS = (
@@ -334,14 +357,18 @@ def analyze_response(result: dict[str, Any], findings: list[Finding]) -> None:
         )
 
     _check_hsts(headers, emit)
-    header_policy = headers.get("Content-Security-Policy")
-    directives = _check_csp(header_policy or facts.get("meta_csp"), emit)
+    header_policies = [value for value in headers.get_all("Content-Security-Policy") or [] if value.strip()]
+    _check_csp(header_policies + ([facts["meta_csp"]] if facts.get("meta_csp") else []), emit)
+    _check_csp_report_only(
+        [value for value in headers.get_all("Content-Security-Policy-Report-Only") or [] if value.strip()], emit
+    )
     for header, severity, rule, title, expected, remediation in _SIMPLE_HEADERS:
         if not headers.get(header):
             emit(severity, rule, title, f"{header} header not present.", expected, remediation)
     _check_referrer_policy(headers.get("Referrer-Policy"), emit)
     # frame-ancestors is ignored when the policy comes from a meta tag.
-    if not headers.get("X-Frame-Options") and not (header_policy and "frame-ancestors" in directives):
+    framed = any("frame-ancestors" in parse_csp(policy) for policy in header_policies)
+    if not headers.get("X-Frame-Options") and not framed:
         emit(
             "Medium",
             "HDR-XFO-001",

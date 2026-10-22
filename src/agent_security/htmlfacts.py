@@ -1,4 +1,4 @@
-"""Security-relevant facts read from a page's static HTML: meta CSP, mixed content and Subresource Integrity."""
+"""Facts read from a page's static HTML: meta CSP, mixed content, Subresource Integrity and known technologies."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ MAX_URLS_PER_FACT = 50
 _ACTIVE_SOURCES = {"script": "src", "iframe": "src", "frame": "src", "embed": "src", "object": "data"}
 _PASSIVE_SOURCES = {"img": "src", "audio": "src", "video": "src", "source": "src", "track": "src"}
 _STYLESHEET_RELS = {"stylesheet", "preload", "modulepreload"}
+# technology -> URL fragments of the resources it loads
+TECHNOLOGY_SIGNATURES = {
+    "Adobe Experience Manager": ("/etc.clientlibs/", "/content/dam/"),
+    "Adobe Experience Platform Tags": ("assets.adobedtm.com",),
+    "OneTrust": ("cdn.cookielaw.org", "otsdkstub", "onetrust.com"),
+    "Google Tag Manager": ("googletagmanager.com/gtm.js", "googletagmanager.com/gtag/js"),
+}
 
 
 class PageFacts(TypedDict):
@@ -18,6 +25,7 @@ class PageFacts(TypedDict):
     mixed_active: list[str]
     mixed_passive: list[str]
     sri_missing: list[str]
+    technologies: list[str]
 
 
 class _FactsParser(HTMLParser):
@@ -29,6 +37,7 @@ class _FactsParser(HTMLParser):
         self.active: list[str] = []
         self.passive: list[str] = []
         self.sri_missing: list[str] = []
+        self.technologies: set[str] = set()
 
     def _resolve(self, value: str | None) -> urllib.parse.SplitResult | None:
         if not value or not value.strip():
@@ -60,6 +69,10 @@ class _FactsParser(HTMLParser):
         if parts is None:
             return
         url = urllib.parse.urlunsplit(parts)
+        lowered = url.lower()
+        self.technologies.update(
+            name for name, fragments in TECHNOLOGY_SIGNATURES.items() if any(f in lowered for f in fragments)
+        )
         if parts.scheme == "http":
             (self.active if active else self.passive).append(url)
         if sri_candidate and (parts.hostname or "").lower() != self.page_host and not values.get("integrity"):
@@ -82,4 +95,5 @@ def page_facts(body: str, base_url: str) -> PageFacts:
         "mixed_active": _unique(parser.active),
         "mixed_passive": _unique(parser.passive),
         "sri_missing": _unique(parser.sri_missing),
+        "technologies": sorted(parser.technologies),
     }

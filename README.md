@@ -94,6 +94,7 @@ A consola só escuta em `localhost` e não envia estatísticas de utilização. 
 
 - **Nova análise**: domínios (um por linha, com hosts adicionais opcionais na mesma linha), perfil de varredura (Rápido, Conservador, Padrão ou Personalizado), rede, OneTrust e confirmação obrigatória de autorização. A análise corre em segundo plano, com progresso por domínio e botão para cancelar.
 - **Painel**: comparação dos domínios de um lote, com indicadores, severidades, avaliações BitSight e matriz de controlos.
+- **Plano de ação**: os problemas de todos os domínios do lote agrupados em ações com prioridade (P1 a P4), responsável adequado à plataforma detetada, passos, snippet de correção e comando de verificação. Inclui ações OneTrust (cookies por registar, sem categoria, ou não essenciais definidos antes do consentimento), um `cdn.yaml` sugerido para AEM as a Cloud Service e exportação em CSV e Markdown. O estado, o responsável e as notas de cada ação ficam em `reports/action-plan-state.json`; uma ação marcada como feita volta a ser assinalada se o problema reaparecer.
 - **Domínio**: problemas filtráveis com evidência e remediação, alinhamento BitSight, inventário de cookies, cobertura e download do HTML/JSON.
 - **Histórico**: todos os relatórios da pasta, incluindo os anteriores à consola.
 - **Regras e BitSight**: o catálogo de regras e o mapeamento para a BitSight.
@@ -114,6 +115,22 @@ $env:ONETRUST_LANGUAGE = "pt"                    # opcional (por omissão, en)
 As credenciais vêm **só do ambiente**: nunca as passe por argumentos nem as escreva em ficheiros. Opções: `--onetrust-language`, `--onetrust-domain-id <uuid>` (repetível, restringe a consulta a domínios do tenant) e `--no-cookie-classification`.
 
 Só os nomes dos cookies, nunca os valores, são enviados ao seu tenant. Um cookie ausente do catálogo aparece como "Not found in OneTrust" e não é considerado uma falha de segurança. Cada execução consulta no máximo 300 nomes.
+
+### Categorizar cookies na OneTrust (escrita, com confirmação)
+
+Na consola, em **Plano de ação → Integrações Adobe e OneTrust**, é possível mudar a categoria de cookies que existem no catálogo do tenant, pela API [Update Cookie](https://developer.onetrust.com/onetrust/reference/updatecookie) (`PUT /api/cookiemanager/v1/cookies`). A escrita está desligada por omissão e usa credenciais próprias, com o scope `COOKIE` (leitura e escrita):
+
+```powershell
+$env:ONETRUST_WRITE_CLIENT_ID = "..."
+$env:ONETRUST_WRITE_CLIENT_SECRET = "..."
+```
+
+- Só aparecem cookies com ID da OneTrust, ou seja, de análises feitas com a classificação ligada (a partir desta versão).
+- As categorias propostas são as cinco por omissão da OneTrust (`C0001` a `C0005`); categorias próprias do tenant introduzem-se pelo ID.
+- Antes de aplicar, uma janela mostra o tenant, a tabela "categoria atual → nova" e os pedidos exatos, e exige confirmação explícita. No máximo 50 cookies por vez.
+- Cada cookie é relido no catálogo antes da escrita (é ignorado se já não existir). Um erro de autenticação ou de permissão interrompe as restantes alterações.
+- Cada resultado, incluindo a categoria anterior, fica em `reports/onetrust-changes.jsonl`, sem credenciais.
+- A alteração chega ao banner quando o script do domínio for publicado na OneTrust. Os atributos `Secure`, `HttpOnly` e `SameSite` não se corrigem na OneTrust.
 
 ## O que é verificado
 
@@ -140,8 +157,11 @@ Só os nomes dos cookies, nunca os valores, são enviados ao seu tenant. Um cook
 | `SRI-001` | Low | Scripts ou estilos de outros domínios sem `integrity` |
 | `URL-SESSION-001` | High | Identificador de sessão no URL (o valor não é registado) |
 | `TLS-HTTP-001` | High | HTTP não redireciona para HTTPS |
+| `CSP-004` | Info | CSP em `Report-Only` (não aplicada) |
 
-A CSP definida em `<meta http-equiv>` também é avaliada quando não há cabeçalho (o `frame-ancestors` de uma meta tag é ignorado, como nos browsers).
+Quando há vários cabeçalhos `Content-Security-Policy`, são avaliados em conjunto, como faz o browser: um script só corre se todas as políticas o permitirem. A CSP definida em `<meta http-equiv>` também é avaliada quando não há cabeçalho (o `frame-ancestors` de uma meta tag é ignorado, como nos browsers).
+
+O relatório identifica também a plataforma (`platform` no JSON): CDN (Fastly, Cloudflare, CloudFront, Akamai, Azure Front Door), Adobe Experience Manager (e se é a versão Cloud Service), OneTrust, Adobe Experience Platform Tags e Google Tag Manager. O plano de ação usa-a para indicar onde corrigir cada problema.
 
 ### Alinhamento BitSight
 
@@ -188,6 +208,8 @@ src/agent_security/
   taxonomy.py   severidades, secções e BitSight
   htmlfacts.py  CSP meta, conteúdo misto, SRI
   batch.py      vários domínios por lote
+  fingerprint.py deteção de CDN, CMS e ferramentas
+  actions.py    plano de ação (prioridades, responsáveis, correções AEM/OneTrust)
   console/      consola Streamlit (app, páginas, dados, análises em segundo plano)
 tests/          um ficheiro de testes por módulo
 ```

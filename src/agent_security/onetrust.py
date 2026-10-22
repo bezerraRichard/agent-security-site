@@ -1,4 +1,8 @@
-"""Classify observed cookies with the OneTrust Cookie Consent API (read-only)."""
+"""Classify observed cookies with the OneTrust Cookie Consent API, and recategorize them on explicit request.
+
+Classification is read-only (``COOKIE_READ``). Changing a category needs a separate client with the read/write
+``COOKIE`` scope, configured through ``ONETRUST_WRITE_CLIENT_ID``/``ONETRUST_WRITE_CLIENT_SECRET``.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,8 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 HOSTNAME_PATTERN = re.compile(r"(?:[a-z0-9-]+\.)+onetrust\.com")
@@ -26,6 +32,17 @@ MAX_SERVER_ERROR_RETRIES = 2
 MAX_CONSECUTIVE_LOOKUP_FAILURES = 5
 LOOKUP_PAUSE_SECONDS = 0.2
 MAX_COOKIES_PER_RUN = 300
+UPDATE_COOKIE_PATH = "/api/cookiemanager/v1/cookies"
+MAX_CHANGES_PER_RUN = 50
+CATEGORY_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
+# OneTrust's default category IDs; tenants can define others, which are entered by hand.
+STANDARD_CATEGORIES = {
+    "C0001": "Strictly Necessary Cookies",
+    "C0002": "Performance Cookies",
+    "C0003": "Functional Cookies",
+    "C0004": "Targeting Cookies",
+    "C0005": "Social Media Cookies",
+}
 
 
 class OneTrustError(Exception):
@@ -41,6 +58,20 @@ class OneTrustConfig:
     client_secret: str = field(repr=False)
     language: str = "en"
     domain_ids: tuple[str, ...] = ()
+    scope: str = "COOKIE_READ"
+
+
+def write_config_from_env(env: Mapping[str, str], language: str | None = None) -> OneTrustConfig | None:
+    """Config for category changes: the read host with the separate ``ONETRUST_WRITE_*`` credentials, or None."""
+    host = (env.get("ONETRUST_HOSTNAME") or "").strip().lower()
+    client_id = (env.get("ONETRUST_WRITE_CLIENT_ID") or "").strip()
+    secret = env.get("ONETRUST_WRITE_CLIENT_SECRET") or ""
+    if not (host and client_id and secret):
+        return None
+    if not HOSTNAME_PATTERN.fullmatch(host):
+        raise ValueError("The OneTrust hostname must be a *.onetrust.com host such as app-eu.onetrust.com")
+    lang = (language or env.get("ONETRUST_LANGUAGE") or "en").strip().lower()
+    return OneTrustConfig(host, client_id, secret, lang, scope="COOKIE")
 
 
 def config_from_env(
@@ -83,7 +114,7 @@ def retry_after_seconds(headers: Any) -> float:
 
 
 class OneTrustClient:
-    """Read-only client for the Cookie Consent API; each route is tried in order until one connects."""
+    """Client for the Cookie Consent API; each route is tried in order until one connects."""
 
     def __init__(
         self,
@@ -162,12 +193,15 @@ class OneTrustClient:
         return token
 
     def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", path, body)
+
+    def _request(self, method: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
         refreshed, rate_limited, server_errors = False, 0, 0
         while True:
             request = urllib.request.Request(
                 self.base_url + path,
                 data=json.dumps(body).encode(),
-                method="POST",
+                method=method,
                 headers={
                     "Authorization": f"Bearer {self._access_token()}",
                     "Content-Type": "application/json",
@@ -196,9 +230,14 @@ class OneTrustClient:
                 continue
             if status in (401, 403):
                 raise OneTrustError(
-                    f"access denied (HTTP {status}); check the client credentials and the COOKIE_READ scope", fatal=True
+                    f"access denied (HTTP {status}); check the client credentials and the {self.config.scope} scope",
+                    fatal=True,
                 )
             raise OneTrustError(f"HTTP {status}")
+
+    def update_cookie_category(self, cookie_id: str, category_id: str) -> dict[str, Any]:
+        """Set a catalogued cookie's category (Update Cookie API; needs the read/write ``COOKIE`` scope)."""
+        return self._request("PUT", UPDATE_COOKIE_PATH, {"cookieId": cookie_id, "customCategoryName": category_id})
 
     def find_cookies(self, name: str) -> list[dict[str, Any]]:
         body = {"domains": list(self.config.domain_ids)} if self.config.domain_ids else {}
@@ -236,6 +275,8 @@ def describe_match(entries: Sequence[Mapping[str, Any]], name: str, observed_hos
         "duration": f"{length} {unit}" if length and unit else None,
         "host": entry.get("host"),
         "source": entry.get("cookieSource"),
+        "cookie_id": entry.get("cookieId"),
+        "category_id": entry.get("displayGroupId"),
         "description": (entry.get("description") or "")[:300] or None,
         "other_categories": others,
     }
@@ -286,3 +327,78 @@ def classify_cookies(
         "cookies_total": len(cookies),
         "counts": dict(counts),
     }, results
+
+
+@dataclass(frozen=True)
+class CategoryChange:
+    cookie_id: str
+    cookie_name: str
+    host: str | None
+    current_category: str | None
+    new_category_id: str
+
+    def payload(self) -> dict[str, str]:
+        """The exact body sent to the Update Cookie API."""
+        return {"cookieId": self.cookie_id, "customCategoryName": self.new_category_id}
+
+
+def validate_changes(changes: Sequence[CategoryChange]) -> None:
+    if not changes:
+        raise ValueError("No cookies selected.")
+    if len(changes) > MAX_CHANGES_PER_RUN:
+        raise ValueError(f"At most {MAX_CHANGES_PER_RUN} cookies can be changed at a time.")
+    if len({change.cookie_id for change in changes}) != len(changes):
+        raise ValueError("The same cookie was selected twice.")
+    for change in changes:
+        try:
+            uuid.UUID(change.cookie_id)
+        except ValueError:
+            raise ValueError(f"Invalid OneTrust cookie ID for {change.cookie_name}.") from None
+        if not CATEGORY_ID_PATTERN.fullmatch(change.new_category_id):
+            raise ValueError(f"Invalid category ID: {change.new_category_id!r}.")
+
+
+def apply_category_changes(
+    client: OneTrustClient, changes: Sequence[CategoryChange], audit_path: Path
+) -> list[dict[str, Any]]:
+    """Apply confirmed changes one by one, re-reading each cookie first, and append every outcome to ``audit_path``.
+
+    An authentication or permission error stops the run; the remaining changes are recorded as not run.
+    """
+    validate_changes(changes)
+    results: list[dict[str, Any]] = []
+    stopped: str | None = None
+    for index, change in enumerate(changes):
+        record: dict[str, Any] = {
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "tenant": client.config.hostname,
+            "cookie_id": change.cookie_id,
+            "cookie_name": change.cookie_name,
+            "host": change.host,
+            "before": change.current_category,
+            "new_category_id": change.new_category_id,
+        }
+        if stopped:
+            record.update(status="not_run", detail=stopped)
+        else:
+            if index:
+                client.sleep(LOOKUP_PAUSE_SECONDS)
+            try:
+                # Re-read before writing: the catalogue may have changed since the scan.
+                current = [e for e in client.find_cookies(change.cookie_name) if e.get("cookieId") == change.cookie_id]
+                if not current:
+                    record.update(status="skipped", detail="cookie no longer in the OneTrust catalogue")
+                else:
+                    record["before"] = current[0].get("displayGroupName") or None
+                    response = client.update_cookie_category(change.cookie_id, change.new_category_id)
+                    errors = [str(message) for message in response.get("errorMessages") or []]
+                    record.update(status="partial" if errors else "applied", detail="; ".join(errors)[:500])
+            except OneTrustError as error:
+                record.update(status="failed", detail=str(error))
+                if error.fatal:
+                    stopped = f"stopped after a fatal error: {error}"
+        results.append(record)
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with audit_path.open("a", encoding="utf-8") as audit:
+            audit.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return results

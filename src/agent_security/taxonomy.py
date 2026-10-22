@@ -50,6 +50,10 @@ RULE_INFO: dict[str, tuple[str, list[str]]] = {
     "CSP-001": ("default-src is the fallback for unspecified directives.", [_MDN + "Content-Security-Policy"]),
     "CSP-002": ("'unsafe-eval' allows dynamic code execution — enables XSS.", [_MDN + "Content-Security-Policy"]),
     "CSP-003": ("Inline scripts are the main XSS vector.", [_MDN + "Content-Security-Policy", _STRICT_CSP]),
+    "CSP-004": (
+        "A report-only policy is not enforced; it shows the stricter policy being prepared.",
+        [_MDN + "Content-Security-Policy-Report-Only"],
+    ),
     "COOKIE-SECURE": ("Cookies without Secure may be sent over HTTP connections.", [_MDN + "Set-Cookie"]),
     "COOKIE-HTTPONLY": ("Without HttpOnly the cookie is accessible to JavaScript (XSS risk).", [_MDN + "Set-Cookie"]),
     "COOKIE-SAMESITE": ("SameSite=Lax/Strict mitigates CSRF; None requires Secure.", [_MDN + "Set-Cookie"]),
@@ -105,6 +109,7 @@ BITSIGHT: dict[str, tuple[str | None, str, str | None]] = {
     "HDR-XCTO-001": (WAH, "Legacy headers", "X-Content-Type-Options"),
     "COOKIE-SECURE": (WAH, "Legacy headers", "Set-Cookie"),
     "COOKIE-HTTPONLY": (WAH, "Legacy headers", "Set-Cookie"),
+    "CSP-004": (None, "Not assessed by Bitsight", None),  # Bitsight ignores report-only policies.
     "HDR-REF-001": (None, "Not assessed by Bitsight", None),
     "HDR-PP-001": (None, "Not assessed by Bitsight", None),
     "TLS-HTTP-001": (None, "Not assessed by Bitsight", None),

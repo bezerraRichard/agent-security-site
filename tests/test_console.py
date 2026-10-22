@@ -115,6 +115,27 @@ class DataTests(unittest.TestCase):
         )
 
 
+class PlanStateTests(unittest.TestCase):
+    def test_action_state_is_merged_and_persisted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            self.assertEqual(data.load_plan_state(folder), {})
+            data.save_action_state(folder, "CSP-002", status="Em curso")
+            data.save_action_state(folder, "CSP-002", note="ticket 42")
+            state = data.load_plan_state(folder)
+            self.assertEqual((state["CSP-002"]["status"], state["CSP-002"]["note"]), ("Em curso", "ticket 42"))
+            self.assertIn("updated_at", state["CSP-002"])
+            (folder / data.PLAN_STATE_FILE).write_text("corrupt", encoding="utf-8")
+            self.assertEqual(data.load_plan_state(folder), {})
+
+    def test_platform_rows_mark_reports_without_detection(self):
+        new = data.ReportEntry(Path("a.json"), {**report("a.example.com"), "platform": {"cdn": "Fastly", "cms": "AEM"}})
+        old = data.ReportEntry(Path("b.json"), report("b.example.com"))
+        rows = data.platform_rows([new, old])
+        self.assertEqual((rows[0]["CDN"], rows[0]["CMS"]), ("Fastly", "AEM"))
+        self.assertEqual(rows[1]["CMS"], "Não detetado (análise anterior)")
+
+
 class FormTests(unittest.TestCase):
     ENV = {"ONETRUST_HOSTNAME": "app-eu.onetrust.com", "ONETRUST_CLIENT_ID": "id", "ONETRUST_CLIENT_SECRET": "s"}
 
