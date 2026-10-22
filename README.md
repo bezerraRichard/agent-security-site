@@ -101,7 +101,7 @@ Só os nomes dos cookies, nunca os valores, são enviados ao seu tenant. Um cook
 | `CSP-000` | High | `Content-Security-Policy` em falta |
 | `CSP-001` | Medium | CSP sem `default-src` |
 | `CSP-002` | Critical | CSP permite `'unsafe-eval'` em scripts |
-| `CSP-003` | High | CSP permite `'unsafe-inline'` em scripts |
+| `CSP-003` | High | CSP permite `'unsafe-inline'` em scripts (sem nonce, hash nem `'strict-dynamic'`, que o anulam) |
 | `HDR-XCTO-001` | Medium | `X-Content-Type-Options` em falta |
 | `HDR-XFO-001` | Medium | Sem `X-Frame-Options` nem `frame-ancestors` |
 | `HDR-REF-001` | Low | `Referrer-Policy` em falta |

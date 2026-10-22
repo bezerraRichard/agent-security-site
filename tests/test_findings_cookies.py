@@ -63,6 +63,19 @@ class CookieTests(unittest.TestCase):
         self.assertEqual(affinity["attributes"], "Path=/; HttpOnly; secure")
         self.assertNotIn(SECRET_VALUE, json.dumps(inventory))
 
+    def test_expiry_dates_do_not_create_attribute_variants(self):
+        pages = [
+            {
+                "requested_url": f"https://www.example.com/{second}",
+                "final_url": None,
+                "headers": headers(f"sid=1; Path=/; Expires=Thu, 22 Oct 2027 10:00:0{second} GMT; Secure"),
+            }
+            for second in range(3)
+        ]
+        [sid] = observe_cookies(pages)
+        self.assertEqual((sid["pages"], sid["variants"]), (3, 1))
+        self.assertEqual(sid["attributes"], "Path=/; Expires=<date>; Secure")
+
 
 class FindingsTests(unittest.TestCase):
     def test_groups_merge_identical_evidence_across_pages(self):

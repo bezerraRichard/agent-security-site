@@ -6,10 +6,12 @@ import re
 from collections.abc import Callable
 from typing import Any, TypedDict
 
-from agent_security.cookies import parse_set_cookie
+from agent_security.cookies import parse_set_cookie, stable_attributes
 
 HSTS_MIN_AGE = 31_536_000
 _MAX_AGE = re.compile(r"(?:^|;)\s*max-age\s*=\s*(\d+)", re.IGNORECASE)
+# A nonce, a hash or 'strict-dynamic' makes CSP Level 3 browsers ignore 'unsafe-inline' in scripts.
+_INLINE_OVERRIDE = re.compile(r"'(?:nonce-[^']+|sha(?:256|384|512)-[^']+|strict-dynamic)'")
 
 
 class Finding(TypedDict):
@@ -116,7 +118,7 @@ def _check_csp(policy: str | None, emit: Emit) -> dict[str, list[str]]:
             "script-src without 'unsafe-eval'",
             "Remove unsafe-eval and refactor code that requires dynamic evaluation.",
         )
-    if "'unsafe-inline'" in script_sources:
+    if "'unsafe-inline'" in script_sources and not any(_INLINE_OVERRIDE.fullmatch(s) for s in script_sources):
         emit(
             "High",
             "CSP-003",
@@ -160,7 +162,7 @@ def _check_cookies(headers: Any, emit: Emit) -> None:
     for raw in headers.get_all("Set-Cookie") or []:
         name, attributes = parse_set_cookie(raw)
         flags = {attribute.split("=", 1)[0].strip().lower() for attribute in attributes}
-        evidence = f"{name}=<redacted>; " + "; ".join(attributes)
+        evidence = f"{name}=<redacted>; " + "; ".join(stable_attributes(attributes))
         if "secure" not in flags:
             emit(
                 "High",

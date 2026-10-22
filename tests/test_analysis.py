@@ -94,6 +94,19 @@ class AnalyzeResponseTests(unittest.TestCase):
         )
         self.assertEqual(rules(analyze(without("Content-Security-Policy") + (csp,))), ["CSP-002", "CSP-003"])
 
+    def test_nonce_hash_or_strict_dynamic_neutralize_unsafe_inline(self):
+        for source in ("'nonce-R4nd0m'", "'sha256-abc='", "'strict-dynamic'"):
+            csp = (
+                "Content-Security-Policy",
+                f"default-src 'self'; script-src {source} 'unsafe-inline'; frame-ancestors 'self'",
+            )
+            self.assertEqual(analyze(without("Content-Security-Policy") + (csp,)), [], source)
+        bogus = (
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'nonce-' 'unsafe-inline'; frame-ancestors 'self'",
+        )
+        self.assertEqual(rules(analyze(without("Content-Security-Policy") + (bogus,))), ["CSP-003"])
+
     def test_default_src_is_the_script_fallback_but_script_src_overrides_it(self):
         fallback = ("Content-Security-Policy", "default-src 'unsafe-inline'; frame-ancestors 'self'")
         override = ("Content-Security-Policy", "default-src 'unsafe-inline'; script-src 'self'; frame-ancestors 'self'")
@@ -112,6 +125,12 @@ class AnalyzeResponseTests(unittest.TestCase):
             self.assertNotIn("TOPSECRET", str(finding))
             self.assertIn("sid=<redacted>; Path=/", finding["evidence"])
             self.assertIn("Cookie sid missing", finding["title"])
+
+    def test_cookie_expiry_dates_are_masked_in_evidence(self):
+        first = analyze(GOOD + (("Set-Cookie", "sid=1; Expires=Thu, 22 Oct 2027 10:00:01 GMT; Secure; HttpOnly"),))
+        second = analyze(GOOD + (("Set-Cookie", "sid=1; expires=Thu, 22 Oct 2027 10:00:02 GMT; Secure; HttpOnly"),))
+        self.assertEqual(first[0]["evidence"], "sid=<redacted>; Expires=<date>; Secure; HttpOnly")
+        self.assertEqual(second[0]["evidence"], "sid=<redacted>; expires=<date>; Secure; HttpOnly")
 
     def test_hardened_cookies_and_multiple_set_cookie_headers(self):
         good = ("Set-Cookie", "a=1; Secure; HttpOnly; SameSite=Lax")

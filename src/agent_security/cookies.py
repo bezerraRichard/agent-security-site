@@ -14,6 +14,15 @@ def parse_set_cookie(raw: str) -> tuple[str, list[str]]:
     return name, [part for part in segments[1:] if part]
 
 
+def stable_attributes(attributes: list[str]) -> list[str]:
+    """Mask ``Expires`` dates, which change on every response, so equal cookies compare equal across pages."""
+    stable = []
+    for attribute in attributes:
+        key = attribute.split("=", 1)[0].strip()
+        stable.append(f"{key}=<date>" if key.lower() == "expires" else attribute)
+    return stable
+
+
 def observe_cookies(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Summarise the cookies set across pages: where they appear and which attributes they carry."""
     seen: dict[str, dict[str, Any]] = {}
@@ -30,7 +39,7 @@ def observe_cookies(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             entry = seen.setdefault(name, {"hosts": set(), "pages": set(), "variants": Counter()})
             entry["hosts"].add(host)
             entry["pages"].add(url)
-            entry["variants"]["; ".join(attributes)] += 1
+            entry["variants"]["; ".join(stable_attributes(attributes))] += 1
     return [
         {
             "name": name,
