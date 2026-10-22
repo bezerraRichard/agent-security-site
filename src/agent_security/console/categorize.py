@@ -14,11 +14,11 @@ from agent_security.onetrust import CategoryChange, OneTrustClient, OneTrustConf
 
 AUDIT_FILE = "onetrust-changes.jsonl"
 STATUS_LABELS = {
-    "applied": "Aplicada",
-    "partial": "Aplicada com avisos",
-    "skipped": "Ignorada (já não existe no catálogo)",
-    "failed": "Falhou",
-    "not_run": "Não executada",
+    "applied": "Applied",
+    "partial": "Applied with warnings",
+    "skipped": "Skipped (no longer in the catalogue)",
+    "failed": "Failed",
+    "not_run": "Not run",
 }
 
 

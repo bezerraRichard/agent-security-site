@@ -57,7 +57,7 @@ class BuildActionsTests(unittest.TestCase):
         self.assertIn("respHeader: X-Content-Type-Options", aem.snippet)
         self.assertIn('value: "nosniff"', aem.snippet)
         [generic] = actions.build_actions([report("b.example.com", finding)])
-        self.assertEqual(generic.owner, "Servidor web / reverse proxy")
+        self.assertEqual(generic.owner, "Web server / reverse proxy")
         self.assertIn('Header always set X-Content-Type-Options "nosniff"', generic.snippet)
         self.assertIn("curl -sI https://b.example.com/", generic.verify)
 
@@ -67,10 +67,10 @@ class BuildActionsTests(unittest.TestCase):
             ("COOKIE-HTTPONLY", "Medium", "Cookie OptanonConsent missing HttpOnly flag", 1),
         ]
         plan = {a.key: a for a in actions.build_actions([report("a.example.com", findings, AEM_CLOUD_PLATFORM)])}
-        self.assertEqual(plan["COOKIE-SAMESITE:affinity"].owner, "Adobe AEM · cookie de afinidade da plataforma")
-        self.assertIn("suporte Adobe", " ".join(plan["COOKIE-SAMESITE:affinity"].steps))
-        self.assertEqual(plan["COOKIE-HTTPONLY:OptanonConsent"].owner, "OneTrust · script de consentimento")
-        self.assertIn("risco aceite", " ".join(plan["COOKIE-HTTPONLY:OptanonConsent"].steps))
+        self.assertEqual(plan["COOKIE-SAMESITE:affinity"].owner, "Adobe AEM · platform affinity cookie")
+        self.assertIn("Adobe support", " ".join(plan["COOKIE-SAMESITE:affinity"].steps))
+        self.assertEqual(plan["COOKIE-HTTPONLY:OptanonConsent"].owner, "OneTrust · consent script")
+        self.assertIn("accepted risk", " ".join(plan["COOKIE-HTTPONLY:OptanonConsent"].steps))
 
     def test_onetrust_actions_from_cookie_classification(self):
         inventory = [
@@ -93,7 +93,7 @@ class BuildActionsTests(unittest.TestCase):
             ("CSP-004", "Info", "Content-Security-Policy-Report-Only present (not enforced)", 1),
         ]
         plan = {a.key: a for a in actions.build_actions([report("a.example.com", findings, AEM_CLOUD_PLATFORM)])}
-        self.assertEqual(plan["CSP-002"].owner, "Front-end AEM e gestão de tags")
+        self.assertEqual(plan["CSP-002"].owner, "AEM front-end and tag management")
         self.assertIn("Report-Only", plan["CSP-002"].steps[0])
         self.assertEqual(plan["CSP-004"].severity, "High")
         self.assertIn(plan["CSP-004"].priority, {"P1", "P2"})
@@ -132,13 +132,13 @@ class OutputTests(unittest.TestCase):
 
     def test_rows_and_markdown_use_saved_state(self):
         plan = self.plan()
-        state = {plan[0].key: {"status": "Em curso", "owner": "Equipa AEM", "note": "sprint 12"}}
+        state = {plan[0].key: {"status": "In progress", "owner": "AEM team", "note": "sprint 12"}}
         row = actions.action_rows(plan, state)[0]
-        self.assertEqual((row["Estado"], row["Responsável"], row["Nota"]), ("Em curso", "Equipa AEM", "sprint 12"))
-        self.assertEqual(actions.action_rows(plan, {})[0]["Estado"], "Por fazer")
+        self.assertEqual((row["Status"], row["Owner"], row["Note"]), ("In progress", "AEM team", "sprint 12"))
+        self.assertEqual(actions.action_rows(plan, {})[0]["Status"], "To do")
         markdown = actions.markdown_plan(plan, state, "Plano")
         self.assertTrue(markdown.startswith("# Plano"))
-        self.assertIn("**Estado:** Em curso", markdown)
+        self.assertIn("**Status:** In progress", markdown)
         self.assertIn("```yaml", markdown)
 
 

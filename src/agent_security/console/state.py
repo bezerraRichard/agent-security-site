@@ -54,7 +54,7 @@ def onetrust_status() -> dict[str, Any]:
         return {"configured": False, "detail": str(error)}
     if config is None:
         partial = any(os.environ.get(n) for n in ("ONETRUST_HOSTNAME", "ONETRUST_CLIENT_ID", "ONETRUST_CLIENT_SECRET"))
-        return {"configured": False, "detail": "Configuração incompleta." if partial else "Não configurada."}
+        return {"configured": False, "detail": "Incomplete settings." if partial else "Not configured."}
     return {"configured": True, "hostname": config.hostname, "language": config.language}
 
 

@@ -14,9 +14,9 @@ from agent_security.urls import normalize_target, validate_host
 
 # name -> (max pages, max depth, delay seconds, time limit minutes)
 PROFILES: dict[str, tuple[int, int, float, float]] = {
-    "Rápido": (1, 0, 1.0, 5.0),
-    "Conservador": (100, 3, 1.0, 20.0),
-    "Padrão": (500, 10, 0.5, 120.0),
+    "Quick": (1, 0, 1.0, 5.0),
+    "Conservative": (100, 3, 1.0, 20.0),
+    "Standard": (500, 10, 0.5, 120.0),
 }
 
 
@@ -57,11 +57,11 @@ def build_configs(
     """One config per (domain, extra hosts) row; blank rows are ignored. Raises ValueError with a readable message."""
     rows = [(domain.strip(), extra) for domain, extra in domains if domain and domain.strip()]
     if not rows:
-        raise ValueError("Indique pelo menos um domínio.")
+        raise ValueError("Enter at least one domain.")
     if options.route == "proxy" and not options.proxy.strip():
-        raise ValueError("Indique o URL do proxy.")
+        raise ValueError("Enter the proxy URL.")
     if options.ca_bundle.strip() and not Path(options.ca_bundle.strip()).is_file():
-        raise ValueError("O ficheiro de CA indicado não existe.")
+        raise ValueError("The CA file does not exist.")
     proxy = parse_proxy(options.proxy.strip()) if options.route == "proxy" else None
     onetrust = (
         config_from_env(env, None, options.onetrust_language or None, options.onetrust_domain_ids)
@@ -76,7 +76,7 @@ def build_configs(
         except ValueError as error:
             raise ValueError(f"{domain}: {error}") from None
         if host in seen:
-            raise ValueError(f"O domínio {host} aparece mais de uma vez.")
+            raise ValueError(f"The domain {host} appears more than once.")
         seen.add(host)
         configs.append(
             ScanConfig(

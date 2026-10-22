@@ -26,7 +26,7 @@ from agent_security.console.data import (
 from agent_security.report import render_html
 from agent_security.taxonomy import RULE_INFO, bitsight_of
 
-RESULT_TONES = {"Falha": "bad", "Ausente": "warn", "Aprovado": "ok", "Presente": "ok", "Sem dados": "neutral"}
+RESULT_TONES = {"Fail": "bad", "Absent": "warn", "Pass": "ok", "Present": "ok", "No data": "neutral"}
 
 
 def _pick_report() -> ReportEntry | None:
@@ -42,7 +42,7 @@ def _pick_report() -> ReportEntry | None:
     labels = {str(e.path): f"{e.host} · {e.started_at[:16].replace('T', ' ')} UTC" for e in options}
     index = paths.index(wanted) if wanted in paths else 0
     chosen = st.selectbox(
-        "Relatório", paths, index=index, format_func=lambda path: labels[path], label_visibility="collapsed"
+        "Report", paths, index=index, format_func=lambda path: labels[path], label_visibility="collapsed"
     )
     chosen = chosen or paths[0]
     state.select_report(chosen)
@@ -53,24 +53,24 @@ def _overview(report: dict[str, Any]) -> None:
     left, right = st.columns(2, gap="large")
     counts = severity_counts(report)
     with left, st.container(border=True):
-        st.markdown("##### Problemas por severidade")
-        rows = [{"Severidade": SEVERITY_LABELS[s], "Achados": n} for s, n in counts.items()]
-        if any(row["Achados"] for row in rows):
-            st.altair_chart(theme.donut(rows, "Severidade", "Achados", theme.SEVERITY_COLORS), width="stretch")
+        st.markdown("##### Issues by severity")
+        rows = [{"Severity": SEVERITY_LABELS[s], "Findings": n} for s, n in counts.items()]
+        if any(row["Findings"] for row in rows):
+            st.altair_chart(theme.donut(rows, "Severity", "Findings", theme.SEVERITY_COLORS), width="stretch")
         else:
-            st.success("Nenhum problema encontrado nas páginas avaliadas.")
+            st.success("No issues found on the assessed pages.")
     with right, st.container(border=True):
-        st.markdown("##### Problemas por secção")
-        st.altair_chart(theme.horizontal_bars(section_counts(report), "Secção", "Achados"), width="stretch")
+        st.markdown("##### Issues by section")
+        st.altair_chart(theme.horizontal_bars(section_counts(report), "Section", "Findings"), width="stretch")
     with st.container(border=True):
-        st.markdown("##### Prioridades")
+        st.markdown("##### Priorities")
         top = [g for g in report["groups"] if g["severity"] in {"Critical", "High"}][:6]
         if not top:
-            st.caption("Sem problemas críticos ou altos.")
+            st.caption("No critical or high issues.")
         for group in top:
             st.markdown(
                 f"{theme.severity_badge(SEVERITY_LABELS[group['severity']])} &nbsp;**{theme.esc(group['title'])}** "
-                f"<span class='domain-progress'>· {theme.esc(group['rule'])} · {group['count']} páginas</span>",
+                f"<span class='domain-progress'>· {theme.esc(group['rule'])} · {group['count']} pages</span>",
                 unsafe_allow_html=True,
             )
 
@@ -89,25 +89,25 @@ def _finding_detail(group: dict[str, Any]) -> None:
         bitsight_text = (
             f"{bitsight['vector']} · {bitsight['category']} · {bitsight['assessment']}"
             if bitsight["vector"]
-            else "Não avaliado pela BitSight"
+            else "Not assessed by BitSight"
         )
         st.markdown(
             "<dl class='kv'>"
-            f"<dt>Páginas afetadas</dt><dd>{group['count']}</dd>"
-            f"<dt>Origem</dt><dd>{theme.esc(', '.join(group.get('sources') or []))}</dd>"
+            f"<dt>Affected pages</dt><dd>{group['count']}</dd>"
+            f"<dt>Sources</dt><dd>{theme.esc(', '.join(group.get('sources') or []))}</dd>"
             f"<dt>BitSight</dt><dd>{theme.esc(bitsight_text)}</dd></dl>",
             unsafe_allow_html=True,
         )
         left, right = st.columns(2)
-        left.markdown("**Valor observado**")
+        left.markdown("**Observed value**")
         left.markdown(f"<div class='evidence'>{theme.esc(group['evidence'])}</div>", unsafe_allow_html=True)
-        right.markdown("**Esperado**")
+        right.markdown("**Expected**")
         right.markdown(f"<div class='evidence'>{theme.esc(group['expected'])}</div>", unsafe_allow_html=True)
-        st.markdown("**Remediação**")
+        st.markdown("**Remediation**")
         st.markdown(f"<div class='evidence'>{theme.esc(group['remediation'])}</div>", unsafe_allow_html=True)
         if references:
-            st.markdown("**Referências**  \n" + "  \n".join(f"- [{ref}]({ref})" for ref in references))
-        with st.expander(f"URLs afetados ({len(group['urls'])})"):
+            st.markdown("**References**  \n" + "  \n".join(f"- [{ref}]({ref})" for ref in references))
+        with st.expander(f"Affected URLs ({len(group['urls'])})"):
             st.dataframe(
                 pd.DataFrame({"URL": group["urls"]}),
                 hide_index=True,
@@ -119,23 +119,21 @@ def _finding_detail(group: dict[str, Any]) -> None:
 def _findings(report: dict[str, Any]) -> None:
     rows = finding_rows(report)
     if not rows:
-        st.success("Nenhum problema encontrado nas páginas avaliadas.")
+        st.success("No issues found on the assessed pages.")
         return
     data = pd.DataFrame(rows)
     filters = st.columns([2, 2, 3])
-    severities = filters[0].multiselect("Severidade", list(SEVERITY_LABELS.values()), placeholder="Todas")
-    sections = filters[1].multiselect("Secção", sorted(data["Secção"].unique()), placeholder="Todas")
-    query = filters[2].text_input("Pesquisar", placeholder="Regra, problema ou avaliação BitSight")
+    severities = filters[0].multiselect("Severity", list(SEVERITY_LABELS.values()), placeholder="All")
+    sections = filters[1].multiselect("Section", sorted(data["Section"].unique()), placeholder="All")
+    query = filters[2].text_input("Search", placeholder="Rule, issue or BitSight assessment")
     if severities:
-        data = data[data["Severidade"].isin(severities)]
+        data = data[data["Severity"].isin(severities)]
     if sections:
-        data = data[data["Secção"].isin(sections)]
+        data = data[data["Section"].isin(sections)]
     if query:
-        text = (
-            data[["Regra", "Problema", "BitSight"]].agg(" ".join, axis=1).str.contains(query, case=False, regex=False)
-        )
+        text = data[["Rule", "Issue", "BitSight"]].agg(" ".join, axis=1).str.contains(query, case=False, regex=False)
         data = data[text]
-    data = data.sort_values(["order", "Páginas"], ascending=[True, False])
+    data = data.sort_values(["order", "Pages"], ascending=[True, False])
     selection = st.dataframe(
         data.drop(columns=["index", "order"]),
         hide_index=True,
@@ -148,43 +146,43 @@ def _findings(report: dict[str, Any]) -> None:
     if picked:
         _finding_detail(report["groups"][int(data.iloc[picked[0]]["index"])])
     else:
-        st.caption("Selecione um problema para ver a evidência, a remediação e os URLs afetados.")
+        st.caption("Select an issue to see the evidence, the remediation and the affected URLs.")
 
 
 def _bitsight(report: dict[str, Any]) -> None:
     theme.note(
-        "Mapeamento aproximado, com base na documentação pública da BitSight. Desde 10/07/2025 o rating usa o vetor "
-        "Web Application Security (WAS); o antigo Web Application Headers (WAH) deixou de ter nota. A BitSight avalia "
-        "apenas a página inicial de cada domínio num browser; esta análise cobre todas as páginas percorridas."
+        "Approximate mapping, based on public BitSight documentation. Since 10 July 2025 the rating uses the Web "
+        "Application Security (WAS) vector; the former Web Application Headers (WAH) vector is no longer graded. "
+        "BitSight only assesses the home page of each domain in a browser; this scan covers every crawled page."
     )
     rows = bitsight_rows(report)
-    was = [r for r in rows if r["Vetor"] == "WAS"]
-    failing = sum(r["Resultado"] == "Falha" for r in was)
-    passing = sum(r["Resultado"] in {"Aprovado", "Presente"} for r in was)
+    was = [r for r in rows if r["Vector"] == "WAS"]
+    failing = sum(r["Result"] == "Fail" for r in was)
+    passing = sum(r["Result"] in {"Pass", "Present"} for r in was)
     st.markdown("&nbsp;")
     theme.kpi_row(
         [
-            theme.kpi("Avaliações WAS em falha", failing, f"de {len(was)} aproximadas", "bad" if failing else "ok"),
-            theme.kpi("Avaliações WAS aprovadas", passing, "sem problemas observados", "ok"),
+            theme.kpi("Failing WAS assessments", failing, f"of {len(was)} approximated", "bad" if failing else "ok"),
+            theme.kpi("Passing WAS assessments", passing, "no issues observed", "ok"),
             theme.kpi(
-                "Fora do âmbito BitSight",
+                "Outside BitSight scope",
                 report["summary"].get("bitsight", {}).get("Not assessed by Bitsight", {}).get("distinct", 0),
-                "problemas sem equivalente",
+                "issues with no equivalent",
                 "info",
             ),
         ]
     )
     st.markdown("&nbsp;")
-    for vector, title in (("WAS", "Web Application Security"), ("WAH (legado)", "Web Application Headers (legado)")):
-        subset = [r for r in rows if r["Vetor"] == vector]
+    for vector, title in (("WAS", "Web Application Security"), ("WAH (legacy)", "Web Application Headers (legacy)")):
+        subset = [r for r in rows if r["Vector"] == vector]
         if not subset:
             continue
         st.markdown(f"##### {title}")
-        table = pd.DataFrame(subset).drop(columns=["Vetor"])
+        table = pd.DataFrame(subset).drop(columns=["Vector"])
         st.dataframe(
             table.style.map(
                 lambda value: theme.BITSIGHT_CELL_STYLES.get(value, ""),
-                subset=["Resultado"],
+                subset=["Result"],
             ),
             hide_index=True,
             width="stretch",
@@ -195,17 +193,17 @@ def _cookies(report: dict[str, Any]) -> None:
     meta = report.get("cookies", {}).get("classification", {})
     status = meta.get("status")
     messages = {
-        "not_configured": ("A classificação OneTrust não estava configurada nesta análise.", True),
-        "no_cookies": ("As páginas avaliadas não definiram cookies.", False),
-        "unavailable": (f"A OneTrust não esteve disponível: {meta.get('detail') or 'erro desconhecido'}.", True),
+        "not_configured": ("OneTrust classification was not configured for this scan.", True),
+        "no_cookies": ("The assessed pages did not set any cookies.", False),
+        "unavailable": (f"OneTrust was unavailable: {meta.get('detail') or 'unknown error'}.", True),
         "partial": (
-            f"Classificação parcial ({meta.get('cookies_checked')} de {meta.get('cookies_total')} cookies). "
+            f"Partial classification ({meta.get('cookies_checked')} of {meta.get('cookies_total')} cookies). "
             f"{meta.get('detail') or ''}",
             True,
         ),
-        "ok": (f"Cookies classificados pela OneTrust ({meta.get('hostname')}, idioma {meta.get('language')}).", False),
+        "ok": (f"Cookies classified by OneTrust ({meta.get('hostname')}, language {meta.get('language')}).", False),
     }
-    text, warn = messages.get(status or "", ("Estado da classificação desconhecido.", True))
+    text, warn = messages.get(status or "", ("Unknown classification status.", True))
     theme.note(text, warn=warn)
     rows = cookie_rows(report)
     if not rows:
@@ -213,22 +211,22 @@ def _cookies(report: dict[str, Any]) -> None:
     st.markdown("&nbsp;")
     left, right = st.columns([2, 3], gap="large")
     with left, st.container(border=True):
-        st.markdown("##### Por categoria")
-        counts = Counter(row["Categoria"] for row in rows)
+        st.markdown("##### By category")
+        counts = Counter(row["Category"] for row in rows)
         st.altair_chart(
-            theme.donut([{"Categoria": k, "Cookies": v} for k, v in counts.items()], "Categoria", "Cookies"),
+            theme.donut([{"Category": k, "Cookies": v} for k, v in counts.items()], "Category", "Cookies"),
             width="stretch",
         )
     with right, st.container(border=True):
-        st.markdown("##### Por origem")
-        origin = Counter(row["Origem"] for row in rows)
+        st.markdown("##### By party")
+        origin = Counter(row["Party"] for row in rows)
         st.altair_chart(
-            theme.horizontal_bars([{"Origem": k, "Cookies": v} for k, v in origin.items()], "Origem", "Cookies"),
+            theme.horizontal_bars([{"Party": k, "Cookies": v} for k, v in origin.items()], "Party", "Cookies"),
             width="stretch",
         )
-    st.markdown("##### Inventário")
+    st.markdown("##### Inventory")
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption("Os valores dos cookies nunca são guardados.")
+    st.caption("Cookie values are never stored.")
 
 
 def _coverage(report: dict[str, Any]) -> None:
@@ -237,20 +235,20 @@ def _coverage(report: dict[str, Any]) -> None:
     probe_text = (
         f"{probe['requested_url']} → {probe['final_url']} (HTTP {probe['status']})"
         if probe and not probe.get("error")
-        else f"não concluída ({(probe or {}).get('error') or 'não executada'})"
+        else f"not completed ({(probe or {}).get('error') or 'not run'})"
     )
     left, right = st.columns(2, gap="large")
     with left, st.container(border=True):
-        st.markdown("##### Âmbito")
+        st.markdown("##### Scope")
         items = {
-            "Hosts autorizados": ", ".join(scope["allowed_hosts"]),
-            "Rota": report["route"].get("selected") or "nenhuma",
-            "Limite de páginas / profundidade": f"{scope['max_pages']} / {scope['max_depth']}",
-            "Pausa entre pedidos": f"{scope['delay_seconds']} s",
-            "robots.txt respeitado": "sim" if scope["respect_robots"] else "não",
-            "Sitemap": "sim" if scope["sitemap_used"] else "não",
-            "Fila por visitar": scope["queue_remaining"],
-            "Motivo de paragem": scope.get("stop_reason") or "—",
+            "Authorized hosts": ", ".join(scope["allowed_hosts"]),
+            "Route": report["route"].get("selected") or "none",
+            "Page limit / depth": f"{scope['max_pages']} / {scope['max_depth']}",
+            "Delay between requests": f"{scope['delay_seconds']} s",
+            "robots.txt respected": "yes" if scope["respect_robots"] else "no",
+            "Sitemap": "yes" if scope["sitemap_used"] else "no",
+            "Queue remaining": scope["queue_remaining"],
+            "Stop reason": scope.get("stop_reason") or "—",
             "HTTP → HTTPS": probe_text,
         }
         st.markdown(
@@ -260,21 +258,21 @@ def _coverage(report: dict[str, Any]) -> None:
             unsafe_allow_html=True,
         )
     with right, st.container(border=True):
-        st.markdown("##### Excluído da varredura")
-        skipped = [{"Motivo": k, "URLs": v} for k, v in report.get("skipped", {}).items()]
+        st.markdown("##### Excluded from the crawl")
+        skipped = [{"Reason": k, "URLs": v} for k, v in report.get("skipped", {}).items()]
         if skipped:
-            st.altair_chart(theme.horizontal_bars(skipped, "Motivo", "URLs", theme.SUBTLE), width="stretch")
+            st.altair_chart(theme.horizontal_bars(skipped, "Reason", "URLs", theme.SUBTLE), width="stretch")
         else:
-            st.caption("Nada excluído.")
-        st.markdown("##### Tentativas de rota")
+            st.caption("Nothing excluded.")
+        st.markdown("##### Route attempts")
         for attempt in report["route"].get("attempts", []):
             tone = "ok" if attempt["ok"] else "bad"
             st.markdown(
-                f"{theme.pill('ok' if attempt['ok'] else 'falhou', tone)} &nbsp;{theme.esc(attempt['route'])} "
+                f"{theme.pill('ok' if attempt['ok'] else 'failed', tone)} &nbsp;{theme.esc(attempt['route'])} "
                 f"<span class='domain-progress'>· {theme.esc(attempt['detail'])}</span>",
                 unsafe_allow_html=True,
             )
-    st.markdown("##### Páginas avaliadas")
+    st.markdown("##### Pages assessed")
     pages = pd.DataFrame(report.get("pages", []))
     if not pages.empty:
         columns = [c for c in ("url", "status", "depth", "source", "findings", "error") if c in pages]
@@ -283,10 +281,10 @@ def _coverage(report: dict[str, Any]) -> None:
                 columns={
                     "url": "URL",
                     "status": "HTTP",
-                    "depth": "Profundidade",
-                    "source": "Origem",
-                    "findings": "Problemas",
-                    "error": "Erro",
+                    "depth": "Depth",
+                    "source": "Source",
+                    "findings": "Issues",
+                    "error": "Error",
                 }
             ),
             hide_index=True,
@@ -302,16 +300,16 @@ def _exports(entry: ReportEntry) -> None:
     html = render_html(report)
     left, right = st.columns(2)
     left.download_button(
-        "Descarregar relatório HTML", html, file_name=html_path.name, mime="text/html", type="primary", width="stretch"
+        "Download HTML report", html, file_name=html_path.name, mime="text/html", type="primary", width="stretch"
     )
     right.download_button(
-        "Descarregar dados JSON",
+        "Download JSON data",
         json.dumps(report, indent=2, ensure_ascii=True),
         file_name=entry.path.name,
         mime="application/json",
         width="stretch",
     )
-    st.caption(f"Ficheiros em {entry.path.parent}")
+    st.caption(f"Files in {entry.path.parent}")
 
 
 def render() -> None:
@@ -320,19 +318,19 @@ def render() -> None:
         entry = _pick_report()
     if entry is None:
         with head:
-            theme.page_header("Domínio", "Detalhe de um relatório.", eyebrow="Domínio")
-        theme.note("Ainda não há relatórios. Inicie uma análise na página Nova análise.")
+            theme.page_header("Domain", "Details of one report.", eyebrow="Domain")
+        theme.note("There are no reports yet. Start a scan on the New scan page.")
         return
     report = entry.report
     status = STATUS_LABELS[status_kind(report["status"])]
     with head:
         theme.page_header(
             entry.host,
-            f"{report['started_at'][:19].replace('T', ' ')} UTC · rota {report['route'].get('selected') or 'nenhuma'}",
-            eyebrow="Domínio",
+            f"{report['started_at'][:19].replace('T', ' ')} UTC · route {report['route'].get('selected') or 'none'}",
+            eyebrow="Domain",
             right=theme.status_pill(status),
         )
-    theme.note(report["status"], warn=status != "Completa")
+    theme.note(report["status"], warn=status != "Complete")
     st.markdown("&nbsp;")
     passed, total = controls_passed(report)
     counts = severity_counts(report)
@@ -340,26 +338,26 @@ def render() -> None:
     theme.kpi_row(
         [
             theme.kpi(
-                "Páginas avaliadas",
+                "Pages assessed",
                 report["scope"]["pages_assessed"],
-                f"{report['scope']['pages_failed']} falhadas",
+                f"{report['scope']['pages_failed']} failed",
                 "info",
             ),
             theme.kpi(
-                "Controlos aprovados", f"{passed}/{total}", "regras sem problemas", "ok" if passed == total else "warn"
+                "Controls passed", f"{passed}/{total}", "rules without issues", "ok" if passed == total else "warn"
             ),
             theme.kpi(
-                "Problemas distintos",
+                "Distinct issues",
                 len(report["groups"]),
-                "agrupados por evidência",
+                "grouped by evidence",
                 "warn" if report["groups"] else "ok",
             ),
-            theme.kpi("Críticos e altos", severe, "a tratar primeiro", "bad" if severe else "ok"),
-            theme.kpi("Cookies", len(report.get("cookies", {}).get("inventory", [])), "observados", "info"),
+            theme.kpi("Critical and high", severe, "fix first", "bad" if severe else "ok"),
+            theme.kpi("Cookies", len(report.get("cookies", {}).get("inventory", [])), "observed", "info"),
         ]
     )
     st.markdown("&nbsp;")
-    tabs = st.tabs(["Visão geral", "Problemas", "BitSight", "Cookies", "Cobertura", "Exportar"])
+    tabs = st.tabs(["Overview", "Issues", "BitSight", "Cookies", "Coverage", "Export"])
     with tabs[0]:
         _overview(report)
     with tabs[1]:

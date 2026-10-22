@@ -19,29 +19,29 @@ BORDER = "#D6E4E6"
 SURFACE = "#EDF4F5"
 ACCENT = "#F7D54E"
 SEVERITY_COLORS = {
-    "Crítico": "#7A1F2B",
-    "Alto": "#D64545",
-    "Médio": "#F2A93B",
-    "Baixo": "#3E7CB1",
+    "Critical": "#7A1F2B",
+    "High": "#D64545",
+    "Medium": "#F2A93B",
+    "Low": "#3E7CB1",
     "Info": SUBTLE,
 }
 PASS_COLOR = "#BFE8E5"
-RESULT_COLORS = {**SEVERITY_COLORS, "Aprovado": PASS_COLOR, "Sem dados": "#EEF2F3"}
+RESULT_COLORS = {**SEVERITY_COLORS, "Pass": PASS_COLOR, "No data": "#EEF2F3"}
 # Bitsight outcomes: chart colours and table cell styles.
 BITSIGHT_COLORS = {
-    "Falha": SEVERITY_COLORS["Alto"],
-    "Ausente": SEVERITY_COLORS["Médio"],
-    "Aprovado": PRIMARY,
-    "Presente": PRIMARY_LIGHT,
-    "Sem dados": "#DCE5E7",
+    "Fail": SEVERITY_COLORS["High"],
+    "Absent": SEVERITY_COLORS["Medium"],
+    "Pass": PRIMARY,
+    "Present": PRIMARY_LIGHT,
+    "No data": "#DCE5E7",
 }
 BITSIGHT_CELL_STYLES = {
-    "Falha": "background-color:#FBE3E3;color:#9B2C2C;font-weight:600",
-    "Ausente": "background-color:#FDF3D0;color:#8A5A00;font-weight:600",
-    "Aprovado": f"background-color:#DDF3F1;color:{PRIMARY_DARK};font-weight:600",
-    "Presente": f"background-color:#DDF3F1;color:{PRIMARY_DARK};font-weight:600",
+    "Fail": "background-color:#FBE3E3;color:#9B2C2C;font-weight:600",
+    "Absent": "background-color:#FDF3D0;color:#8A5A00;font-weight:600",
+    "Pass": f"background-color:#DDF3F1;color:{PRIMARY_DARK};font-weight:600",
+    "Present": f"background-color:#DDF3F1;color:{PRIMARY_DARK};font-weight:600",
 }
-STATUS_TONES = {"Completa": "ok", "Parcial": "warn", "Incompleta": "bad"}
+STATUS_TONES = {"Complete": "ok", "Partial": "warn", "Incomplete": "bad"}
 
 CSS = f"""
 <style>
@@ -147,18 +147,18 @@ def severity_scale() -> alt.Scale:
 
 def stacked_severity_chart(rows: list[dict]) -> alt.Chart:
     data = pd.DataFrame(rows)
-    height = 44 * data["Domínio"].nunique() + 30
+    height = 44 * data["Domain"].nunique() + 30
     order = {name: index for index, name in enumerate(SEVERITY_COLORS)}
-    data["ordem"] = data["Severidade"].map(order)
+    data["order"] = data["Severity"].map(order)
     return (
         alt.Chart(data)
         .mark_bar(cornerRadiusEnd=3, size=24)
         .encode(
-            y=alt.Y("Domínio:N", title=None, sort="-x", axis=alt.Axis(labelLimit=220)),
-            x=alt.X("sum(Achados):Q", title="Problemas distintos", axis=alt.Axis(tickMinStep=1, format="d")),
-            color=alt.Color("Severidade:N", scale=severity_scale(), legend=alt.Legend(orient="bottom", title=None)),
-            order=alt.Order("ordem:Q"),
-            tooltip=["Domínio", "Severidade", "Achados"],
+            y=alt.Y("Domain:N", title=None, sort="-x", axis=alt.Axis(labelLimit=220)),
+            x=alt.X("sum(Findings):Q", title="Distinct issues", axis=alt.Axis(tickMinStep=1, format="d")),
+            color=alt.Color("Severity:N", scale=severity_scale(), legend=alt.Legend(orient="bottom", title=None)),
+            order=alt.Order("order:Q"),
+            tooltip=["Domain", "Severity", "Findings"],
         )
         .properties(height=height)
     )
@@ -189,10 +189,10 @@ def heatmap(data: pd.DataFrame, y: str, colors: dict[str, str], tooltip: list[st
         alt.Chart(data)
         .mark_rect(stroke="#FFFFFF", strokeWidth=2, cornerRadius=4)
         .encode(
-            x=alt.X("Domínio:N", title=None, axis=alt.Axis(orient="top", labelAngle=0, labelLimit=150)),
+            x=alt.X("Domain:N", title=None, axis=alt.Axis(orient="top", labelAngle=0, labelLimit=150)),
             y=alt.Y(f"{y}:N", title=None, sort=None, axis=alt.Axis(labelLimit=320)),
             color=alt.Color(
-                "Resultado:N",
+                "Result:N",
                 scale=alt.Scale(domain=list(colors), range=list(colors.values())),
                 legend=alt.Legend(orient="bottom", title=None),
             ),

@@ -104,7 +104,7 @@ class JobRegistry:
     def start(self, configs: Sequence[ScanConfig], output_dir: Path, runner: Runner = run_batch) -> ScanJob:
         with self._lock:
             if self.current and self.current.running:
-                raise RuntimeError("Já existe uma análise em curso.")
+                raise RuntimeError("A scan is already running.")
             job = ScanJob(
                 id=new_batch_id(),
                 output_dir=output_dir,

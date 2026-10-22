@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_security.actions import LEGACY_STATUSES
 from agent_security.taxonomy import (
     BITSIGHT,
     RULE_INFO,
@@ -22,15 +23,15 @@ from agent_security.taxonomy import (
     section_of,
 )
 
-SEVERITY_LABELS = {"Critical": "Crítico", "High": "Alto", "Medium": "Médio", "Low": "Baixo", "Info": "Info"}
+SEVERITY_LABELS = {"Critical": "Critical", "High": "High", "Medium": "Medium", "Low": "Low", "Info": "Info"}
 SECTION_LABELS = {
-    "Security Headers": "Cabeçalhos de segurança",
+    "Security Headers": "Security headers",
     "Content Security Policy": "Content Security Policy",
     "Cookies": "Cookies",
-    "Page Content": "Conteúdo da página",
+    "Page Content": "Page content",
     "TLS": "TLS",
 }
-STATUS_LABELS = {"complete": "Completa", "partial": "Parcial", "incomplete": "Incompleta"}
+STATUS_LABELS = {"complete": "Complete", "partial": "Partial", "incomplete": "Incomplete"}
 # Rules that existed before the Bitsight alignment (v0.3); older reports never evaluated the others.
 LEGACY_RULES = frozenset(
     {
@@ -150,14 +151,14 @@ def domain_row(entry: ReportEntry) -> dict[str, Any]:
     passed, total = controls_passed(report)
     counts = severity_counts(report)
     return {
-        "Domínio": entry.host,
-        "Estado": STATUS_LABELS[status_kind(report["status"])],
-        "Páginas": report["scope"].get("pages_assessed", 0),
-        "Falhas": report["scope"].get("pages_failed", 0),
+        "Domain": entry.host,
+        "Status": STATUS_LABELS[status_kind(report["status"])],
+        "Pages": report["scope"].get("pages_assessed", 0),
+        "Failed pages": report["scope"].get("pages_failed", 0),
         **{SEVERITY_LABELS[severity]: counts[severity] for severity in SEVERITIES},
-        "Controlos aprovados": passed / total if total else 0.0,
+        "Controls passed": passed / total if total else 0.0,
         "Cookies": len(report.get("cookies", {}).get("inventory", [])),
-        "Rota": report.get("route", {}).get("selected") or "—",
+        "Route": report.get("route", {}).get("selected") or "—",
         "path": str(entry.path),
     }
 
@@ -169,12 +170,12 @@ def finding_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "index": index,
-                "Severidade": SEVERITY_LABELS.get(group["severity"], group["severity"]),
-                "Regra": group["rule"],
-                "Problema": group["title"],
-                "Secção": SECTION_LABELS.get(section_of(group["rule"]), section_of(group["rule"])),
+                "Severity": SEVERITY_LABELS.get(group["severity"], group["severity"]),
+                "Rule": group["rule"],
+                "Issue": group["title"],
+                "Section": SECTION_LABELS.get(section_of(group["rule"]), section_of(group["rule"])),
                 "BitSight": bitsight["assessment"] or "—",
-                "Páginas": group["count"],
+                "Pages": group["count"],
                 "order": SEVERITY_ORDER.get(group["severity"], 9),
             }
         )
@@ -187,12 +188,12 @@ def severity_by_domain(entries: list[ReportEntry]) -> list[dict[str, Any]]:
     for entry in entries:
         for severity, count in severity_counts(entry.report).items():
             if count:
-                rows.append({"Domínio": entry.host, "Severidade": SEVERITY_LABELS[severity], "Achados": count})
+                rows.append({"Domain": entry.host, "Severity": SEVERITY_LABELS[severity], "Findings": count})
     return rows
 
 
 def rule_matrix(entries: list[ReportEntry]) -> list[dict[str, Any]]:
-    """One row per (rule, domain): the severity when the rule failed there, or "Aprovado"."""
+    """One row per (rule, domain): the severity when the rule failed there, or "Pass"."""
     rows = []
     for entry in entries:
         evaluated = evaluated_rules(entry.report)
@@ -204,8 +205,8 @@ def rule_matrix(entries: list[ReportEntry]) -> list[dict[str, Any]]:
             if rule in severity_by_rule:
                 result = SEVERITY_LABELS[severity_by_rule[rule]]
             else:
-                result = "Aprovado" if rule in evaluated else "Sem dados"
-            rows.append({"Regra": rule, "Domínio": entry.host, "Resultado": result, "Páginas": pages_by_rule[rule]})
+                result = "Pass" if rule in evaluated else "No data"
+            rows.append({"Rule": rule, "Domain": entry.host, "Result": result, "Pages": pages_by_rule[rule]})
     return rows
 
 
@@ -224,23 +225,23 @@ def bitsight_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
         failing = [rule for rule in rules if groups_by_rule.get(rule)]
         positive_only = "positive-only" in assessment
         if not evaluated & set(rules):
-            outcome = "Sem dados"
+            outcome = "No data"
         elif positive_only:
-            outcome = "Ausente" if failing else "Presente"
+            outcome = "Absent" if failing else "Present"
         else:
-            outcome = "Falha" if failing else "Aprovado"
+            outcome = "Fail" if failing else "Pass"
         rows.append(
             {
-                "Vetor": "WAS" if vector == WAS else "WAH (legado)" if vector == WAH else vector,
-                "Categoria": category,
-                "Avaliação BitSight": assessment,
-                "Resultado": outcome,
-                "Regras": ", ".join(rules),
-                "Páginas afetadas": sum(group["count"] for rule in failing for group in groups_by_rule[rule]),
+                "Vector": "WAS" if vector == WAS else "WAH (legacy)" if vector == WAH else vector,
+                "Category": category,
+                "BitSight assessment": assessment,
+                "Result": outcome,
+                "Rules": ", ".join(rules),
+                "Affected pages": sum(group["count"] for rule in failing for group in groups_by_rule[rule]),
             }
         )
-    order = {"Falha": 0, "Ausente": 1, "Aprovado": 2, "Presente": 3, "Sem dados": 4}
-    rows.sort(key=lambda row: (row["Vetor"] != "WAS", order[row["Resultado"]], row["Categoria"]))
+    order = {"Fail": 0, "Absent": 1, "Pass": 2, "Present": 3, "No data": 4}
+    rows.sort(key=lambda row: (row["Vector"] != "WAS", order[row["Result"]], row["Category"]))
     return rows
 
 
@@ -251,21 +252,21 @@ def cookie_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
         status = info.get("status")
         category = {
             "classified": info.get("category"),
-            "uncategorized": "Sem categoria na OneTrust",
-            "not_found": "Não encontrado na OneTrust",
-            "lookup_failed": "Falha na consulta",
-        }.get(status or "", "Não classificado")
+            "uncategorized": "Uncategorized in OneTrust",
+            "not_found": "Not found in OneTrust",
+            "lookup_failed": "Lookup failed",
+        }.get(status or "", "Not classified")
         third = info.get("third_party")
         rows.append(
             {
                 "Cookie": cookie["name"],
-                "Categoria": category,
-                "Origem": "—" if third is None else ("Terceiros" if third else "Própria"),
-                "Duração": " ".join(p for p in (info.get("lifespan"), info.get("duration")) if p) or "—",
-                "Páginas": cookie["pages"],
-                "Atributos": cookie["attributes"] or "—",
+                "Category": category,
+                "Party": "—" if third is None else ("Third-party" if third else "First-party"),
+                "Duration": " ".join(p for p in (info.get("lifespan"), info.get("duration")) if p) or "—",
+                "Pages": cookie["pages"],
+                "Attributes": cookie["attributes"] or "—",
                 "Hosts": ", ".join(cookie.get("hosts") or []),
-                "Descrição": info.get("description") or "",
+                "Description": info.get("description") or "",
             }
         )
     return rows
@@ -280,7 +281,13 @@ def load_plan_state(directory: Path) -> dict[str, dict[str, Any]]:
         state = json.loads((directory / PLAN_STATE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: v for k, v in state.items() if isinstance(v, dict)} if isinstance(state, dict) else {}
+    if not isinstance(state, dict):
+        return {}
+    entries = {k: v for k, v in state.items() if isinstance(v, dict)}
+    for entry in entries.values():  # Files saved before the console was in English.
+        if entry.get("status") in LEGACY_STATUSES:
+            entry["status"] = LEGACY_STATUSES[entry["status"]]
+    return entries
 
 
 def save_action_state(directory: Path, key: str, **fields: str) -> dict[str, dict[str, Any]]:
@@ -302,10 +309,10 @@ def platform_rows(entries: list[ReportEntry]) -> list[dict[str, Any]]:
         platform = entry.report.get("platform")
         rows.append(
             {
-                "Domínio": entry.host,
-                "CMS": (platform or {}).get("cms") or ("—" if platform else "Não detetado (análise anterior)"),
+                "Domain": entry.host,
+                "CMS": (platform or {}).get("cms") or ("—" if platform else "Not detected (older scan)"),
                 "CDN": (platform or {}).get("cdn") or "—",
-                "Outras tecnologias": ", ".join((platform or {}).get("technologies") or []) or "—",
+                "Other technologies": ", ".join((platform or {}).get("technologies") or []) or "—",
             }
         )
     return rows
@@ -314,6 +321,6 @@ def platform_rows(entries: list[ReportEntry]) -> list[dict[str, Any]]:
 def section_counts(report: dict[str, Any]) -> list[dict[str, Any]]:
     sections = report["summary"].get("sections", {})
     return [
-        {"Secção": SECTION_LABELS.get(name, name), "Achados": sections.get(name, {}).get("distinct", 0)}
+        {"Section": SECTION_LABELS.get(name, name), "Findings": sections.get(name, {}).get("distinct", 0)}
         for name in SECTIONS
     ]

@@ -33,7 +33,7 @@ from agent_security.onetrust import (
 )
 
 PRIORITY_COLORS = {"P1": "#D64545", "P2": "#F2A93B", "P3": "#3E7CB1", "P4": "#808B94"}
-PRIORITY_HELP = "P1 corrigir já · P2 próximo ciclo · P3 planear · P4 melhoria"
+PRIORITY_HELP = "P1 fix now · P2 next cycle · P3 plan · P4 improvement"
 
 
 def _priority_badge(priority: str) -> str:
@@ -49,29 +49,29 @@ def _action_card(action: Action, saved: dict) -> None:
     status = saved.get("status") or STATUSES[0]
     with st.container(border=True):
         warning = (
-            " &nbsp;" + theme.pill("Ainda detetado na última análise", "bad")
-            if status == "Feito"  # Every action in the plan was found in the batch shown.
+            " &nbsp;" + theme.pill("Still detected in the latest scan", "bad")
+            if status == "Done"  # Every action in the plan was found in the batch shown.
             else ""
         )
         title = theme.esc(action.title.replace("`", ""))
         st.html(
             f"{_priority_badge(action.priority)} &nbsp;<b style='font-size:1.02rem'>{title}</b>"
             f"{warning}<div class='domain-progress' style='margin-top:.35rem'>"
-            f"{theme.esc(saved.get('owner') or action.owner)} · esforço {theme.esc(action.effort.lower())} · "
-            f"{theme.esc(', '.join(action.domains))} · {action.pages} páginas"
+            f"{theme.esc(saved.get('owner') or action.owner)} · effort {theme.esc(action.effort.lower())} · "
+            f"{theme.esc(', '.join(action.domains))} · {action.pages} pages"
             + (f" · BitSight: {theme.esc(action.bitsight)}" if action.bitsight else "")
             + "</div>"
         )
-        with st.expander("Como corrigir"):
+        with st.expander("How to fix"):
             st.caption(action.why)
             st.markdown("\n".join(f"{n}. {step}" for n, step in enumerate(action.steps, start=1)))
             if action.snippet:
                 st.code(action.snippet, language=action.snippet_language)
-            st.markdown("**Verificação**")
+            st.markdown("**Verification**")
             st.code(action.verify, language="bash")
         columns = st.columns([1.2, 1.6, 2.2])
         columns[0].selectbox(
-            "Estado",
+            "Status",
             STATUSES,
             index=STATUSES.index(status) if status in STATUSES else 0,
             key=f"status-{action.key}",
@@ -79,7 +79,7 @@ def _action_card(action: Action, saved: dict) -> None:
             args=(action.key, "status"),
         )
         columns[1].text_input(
-            "Responsável",
+            "Owner",
             value=saved.get("owner") or "",
             placeholder=action.owner,
             key=f"owner-{action.key}",
@@ -87,9 +87,9 @@ def _action_card(action: Action, saved: dict) -> None:
             args=(action.key, "owner"),
         )
         columns[2].text_input(
-            "Nota",
+            "Note",
             value=saved.get("note") or "",
-            placeholder="Ticket, prazo, decisão…",
+            placeholder="Ticket, deadline, decision…",
             key=f"note-{action.key}",
             on_change=_save,
             args=(action.key, "note"),
@@ -98,9 +98,9 @@ def _action_card(action: Action, saved: dict) -> None:
 
 def _actions_tab(plan: list[Action], saved: dict) -> None:
     filters = st.columns([2, 3, 2])
-    priorities = filters[0].multiselect("Prioridade", list(PRIORITY_COLORS), placeholder="Todas", help=PRIORITY_HELP)
-    owners = filters[1].multiselect("Responsável", sorted({a.owner for a in plan}), placeholder="Todos")
-    statuses = filters[2].multiselect("Estado", list(STATUSES), placeholder="Todos")
+    priorities = filters[0].multiselect("Priority", list(PRIORITY_COLORS), placeholder="All", help=PRIORITY_HELP)
+    owners = filters[1].multiselect("Owner", sorted({a.owner for a in plan}), placeholder="All")
+    statuses = filters[2].multiselect("Status", list(STATUSES), placeholder="All")
     visible = [
         action
         for action in plan
@@ -109,7 +109,7 @@ def _actions_tab(plan: list[Action], saved: dict) -> None:
         and (not statuses or (saved.get(action.key, {}).get("status") or STATUSES[0]) in statuses)
     ]
     if not visible:
-        st.caption("Nenhuma ação corresponde aos filtros.")
+        st.caption("No action matches the filters.")
     for action in visible:
         _action_card(action, saved.get(action.key, {}))
 
@@ -120,54 +120,54 @@ def _integrations_tab(plan: list[Action], batch_reports: list[dict]) -> None:
     with left, st.container(border=True):
         st.markdown("##### Adobe Experience Manager")
         if aem_cloud:
-            st.html(theme.pill("AEM as a Cloud Service detetado", "ok"))
+            st.html(theme.pill("AEM as a Cloud Service detected", "ok"))
             st.markdown(
-                "Os cabeçalhos de segurança corrigem-se na CDN da Adobe, com um ficheiro `cdn.yaml` no repositório "
-                "AEM, publicado pelo **Config Pipeline** do Cloud Manager:\n"
-                "1. Rever o ficheiro sugerido abaixo e juntá-lo a `config/cdn.yaml`.\n"
-                "2. Fazer deploy em dev e stage, validar e promover para produção.\n"
-                "3. Voltar a analisar os domínios para confirmar.\n\n"
-                "Os cabeçalhos CSP atuais podem vir de outra camada (Dispatcher ou aplicação): ao alterar a CSP, "
-                "confirme a origem e retire os cabeçalhos antigos, porque o browser aplica todas as políticas em "
-                "conjunto."
+                "Security headers are fixed in the Adobe CDN, with a `cdn.yaml` file in the AEM repository, deployed "
+                "by the Cloud Manager **Config Pipeline**:\n"
+                "1. Review the suggested file below and merge it into `config/cdn.yaml`.\n"
+                "2. Deploy to dev and stage, validate, then promote to production.\n"
+                "3. Scan the domains again to confirm.\n\n"
+                "The current CSP headers may come from another layer (Dispatcher or application): when changing "
+                "the CSP, confirm where it comes from and remove the old headers, because the browser enforces "
+                "every policy together."
             )
             config = aem_cdn_config(plan)
             if config:
                 st.code(config, language="yaml")
-                st.download_button("Descarregar cdn.yaml sugerido", config, file_name="cdn.yaml", mime="text/yaml")
+                st.download_button("Download suggested cdn.yaml", config, file_name="cdn.yaml", mime="text/yaml")
             else:
-                st.caption("Não há cabeçalhos a acrescentar pela CDN neste lote.")
+                st.caption("No headers to add through the CDN in this batch.")
         else:
-            st.html(theme.pill("AEM as a Cloud Service não detetado neste lote", "neutral"))
-            st.caption("As ações indicam a configuração para Dispatcher/Apache ou para a CDN detetada.")
+            st.html(theme.pill("AEM as a Cloud Service not detected in this batch", "neutral"))
+            st.caption("The actions show the configuration for Dispatcher/Apache or for the detected CDN.")
     with right, st.container(border=True):
         st.markdown("##### OneTrust")
         statuses = Counter(r.get("cookies", {}).get("classification", {}).get("status") for r in batch_reports)
         if statuses.get("not_configured"):
-            st.html(theme.pill("Classificação OneTrust não configurada nas análises", "warn"))
+            st.html(theme.pill("OneTrust classification not configured in the scans", "warn"))
         else:
-            st.html(theme.pill("Classificação OneTrust usada nas análises", "ok"))
+            st.html(theme.pill("OneTrust classification used in the scans", "ok"))
         onetrust = [a for a in plan if a.key.startswith("ONETRUST-") or a.owner.startswith("OneTrust")]
         st.markdown(
-            "A consola **lê** o catálogo de cookies (API *Get List of Cookies by Criteria*, scope `COOKIE_READ`). "
-            "A **categorização** pode ser feita abaixo, com confirmação, pela API *Update Cookie* "
-            "(`PUT /api/cookiemanager/v1/cookies`, scope `COOKIE`, credenciais próprias). Registar cookies em falta "
-            "e novos scans do domínio continuam a ser feitos no OneTrust. Os atributos Secure/HttpOnly/SameSite "
-            "não se corrigem no OneTrust: dependem de quem envia o cookie."
+            "The console **reads** the cookie catalogue (*Get List of Cookies by Criteria* API, `COOKIE_READ` scope). "
+            "**Categorization** can be done below, with confirmation, through the *Update Cookie* API "
+            "(`PUT /api/cookiemanager/v1/cookies`, `COOKIE` scope, separate credentials). Registering missing "
+            "cookies and new domain scans are still done in OneTrust. The Secure/HttpOnly/SameSite attributes "
+            "cannot be fixed in OneTrust: they depend on whoever sends the cookie."
         )
         if onetrust:
             for action in onetrust:
                 st.html(f"{_priority_badge(action.priority)} &nbsp;{theme.esc(action.title.replace('`', ''))}")
         else:
-            st.caption("Sem ações OneTrust neste lote.")
+            st.caption("No OneTrust actions in this batch.")
     _categorize_section(batch_reports)
 
 
-@st.dialog("Confirmar alterações na OneTrust", width="large")
+@st.dialog("Confirm OneTrust changes", width="large")
 def _confirm_changes(changes: list[CategoryChange], tenant: str) -> None:
     st.warning(
-        f"Vai alterar a categoria de {len(changes)} cookie(s) no tenant **{tenant}**. A alteração fica no catálogo "
-        "da OneTrust e chega ao banner de consentimento quando o script do domínio for publicado."
+        f"You are about to change the category of {len(changes)} cookie(s) in tenant **{tenant}**. The change is "
+        "saved in the OneTrust catalogue and reaches the consent banner once the domain script is published."
     )
     st.dataframe(
         pd.DataFrame(
@@ -175,8 +175,8 @@ def _confirm_changes(changes: list[CategoryChange], tenant: str) -> None:
                 {
                     "Cookie": c.cookie_name,
                     "Host": c.host or "—",
-                    "Categoria atual": c.current_category or "sem categoria",
-                    "Nova categoria": c.new_category_id,
+                    "Current category": c.current_category or "uncategorized",
+                    "New category": c.new_category_id,
                 }
                 for c in changes
             ]
@@ -184,24 +184,25 @@ def _confirm_changes(changes: list[CategoryChange], tenant: str) -> None:
         hide_index=True,
         width="stretch",
     )
-    with st.expander("Pedidos que serão enviados"):
+    with st.expander("Requests that will be sent"):
         st.code(
             "\n\n".join(f"PUT {UPDATE_COOKIE_PATH}\n{json.dumps(c.payload(), indent=2)}" for c in changes),
             language="http",
         )
     st.caption(
-        "Antes de cada alteração o cookie é relido no catálogo; a categoria anterior fica no registo de alterações."
+        "Each cookie is read again from the catalogue before it is changed; the previous category is kept in the "
+        "change log."
     )
-    confirmed = st.checkbox("Confirmo que estas alterações foram aprovadas e quero aplicá-las na OneTrust.")
+    confirmed = st.checkbox("I confirm these changes have been approved and I want to apply them in OneTrust.")
     left, right = st.columns(2)
-    if left.button("Cancelar", width="stretch"):
+    if left.button("Cancel", width="stretch"):
         st.rerun()
-    if right.button(f"Aplicar {len(changes)} alteração(ões)", type="primary", disabled=not confirmed, width="stretch"):
+    if right.button(f"Apply {len(changes)} change(s)", type="primary", disabled=not confirmed, width="stretch"):
         config = write_config_from_env(os.environ)  # Credentials come from the environment, never from the page.
         if config is None:
-            st.error("As credenciais de escrita da OneTrust deixaram de estar definidas.")
+            st.error("The OneTrust write credentials are no longer set.")
             return
-        with st.spinner("A aplicar na OneTrust…"):
+        with st.spinner("Applying in OneTrust…"):
             results = apply_category_changes(make_write_client(config), changes, state.reports_dir() / AUDIT_FILE)
         st.session_state["onetrust_results"] = results
         st.rerun()
@@ -210,7 +211,7 @@ def _confirm_changes(changes: list[CategoryChange], tenant: str) -> None:
 def _categorize_section(batch_reports: list[dict]) -> None:
     st.markdown("&nbsp;")
     with st.container(border=True):
-        st.markdown("##### Categorizar cookies na OneTrust")
+        st.markdown("##### Categorize cookies in OneTrust")
         try:
             config = write_config_from_env(os.environ)
         except ValueError as error:
@@ -219,21 +220,21 @@ def _categorize_section(batch_reports: list[dict]) -> None:
         cookies = categorizable_cookies(batch_reports)
         if not cookies:
             theme.note(
-                "Nenhum cookie deste lote tem ID da OneTrust. Repita a análise com a classificação OneTrust ligada "
-                "(as análises anteriores não guardavam o ID)."
+                "No cookie in this batch has a OneTrust ID. Run the scan again with OneTrust classification on "
+                "(older scans did not store the ID)."
             )
             return
         if config is None:
             theme.note(
-                "A escrita na OneTrust está desligada. Para a ligar, crie na OneTrust um cliente de API com o scope "
-                "COOKIE (leitura e escrita), defina ONETRUST_WRITE_CLIENT_ID e ONETRUST_WRITE_CLIENT_SECRET e "
-                "reinicie a consola. As credenciais de leitura (COOKIE_READ) continuam a ser usadas nas análises.",
+                "Writing to OneTrust is off. To turn it on, create a OneTrust API client with the COOKIE scope (read "
+                "and write), set ONETRUST_WRITE_CLIENT_ID and ONETRUST_WRITE_CLIENT_SECRET (e.g. in .env) and restart "
+                "the console. The read credentials (COOKIE_READ) are still used by the scans.",
                 warn=True,
             )
             st.dataframe(
                 pd.DataFrame(
                     [
-                        {"Cookie": c["name"], "Host": c["host"] or "—", "Categoria": c["category"] or "sem categoria"}
+                        {"Cookie": c["name"], "Host": c["host"] or "—", "Category": c["category"] or "uncategorized"}
                         for c in cookies
                     ]
                 ),
@@ -241,28 +242,28 @@ def _categorize_section(batch_reports: list[dict]) -> None:
                 width="stretch",
             )
             return
-        st.html(theme.pill(f"Escrita ativa · {config.hostname}", "warn"))
+        st.html(theme.pill(f"Writing enabled · {config.hostname}", "warn"))
         labels = {
-            c["cookie_id"]: f"{c['name']} · {c['host'] or '—'} · {c['category'] or 'sem categoria'}" for c in cookies
+            c["cookie_id"]: f"{c['name']} · {c['host'] or '—'} · {c['category'] or 'uncategorized'}" for c in cookies
         }
         selected = st.multiselect(
-            "Cookies a alterar",
+            "Cookies to change",
             list(labels),
             format_func=lambda cookie_id: labels[cookie_id],
             max_selections=MAX_CHANGES_PER_RUN,
-            placeholder="Escolha os cookies (os sem categoria aparecem primeiro)",
+            placeholder="Choose the cookies (uncategorized ones come first)",
         )
         left, right = st.columns([2, 1])
         choice = left.selectbox(
-            "Nova categoria",
+            "New category",
             [*STANDARD_CATEGORIES, "custom"],
-            format_func=lambda c: f"{c} · {STANDARD_CATEGORIES[c]}" if c in STANDARD_CATEGORIES else "Outro ID…",
-            help="IDs por omissão da OneTrust. Se o tenant usar categorias próprias, escolha Outro ID.",
+            format_func=lambda c: f"{c} · {STANDARD_CATEGORIES[c]}" if c in STANDARD_CATEGORIES else "Other ID…",
+            help="OneTrust default IDs. If the tenant uses its own categories, choose Other ID.",
         )
         category_id = (
-            right.text_input("ID da categoria", placeholder="ex.: C0007") if choice == "custom" else (choice or "")
+            right.text_input("Category ID", placeholder="e.g. C0007") if choice == "custom" else (choice or "")
         ).strip()
-        if st.button("Rever alterações", type="primary", disabled=not selected or not category_id):
+        if st.button("Review changes", type="primary", disabled=not selected or not category_id):
             changes = build_changes([c for c in cookies if c["cookie_id"] in selected], category_id)
             try:
                 validate_changes(changes)
@@ -272,16 +273,16 @@ def _categorize_section(batch_reports: list[dict]) -> None:
                 _confirm_changes(changes, config.hostname)
         results = st.session_state.get("onetrust_results")
         if results:
-            st.markdown("**Resultado da última alteração**")
+            st.markdown("**Result of the last change**")
             st.dataframe(
                 pd.DataFrame(
                     [
                         {
                             "Cookie": r["cookie_name"],
-                            "Antes": r.get("before") or "sem categoria",
-                            "Nova categoria": r["new_category_id"],
-                            "Resultado": STATUS_LABELS.get(r["status"], r["status"]),
-                            "Detalhe": r.get("detail") or "",
+                            "Before": r.get("before") or "uncategorized",
+                            "New category": r["new_category_id"],
+                            "Result": STATUS_LABELS.get(r["status"], r["status"]),
+                            "Detail": r.get("detail") or "",
                         }
                         for r in results
                     ]
@@ -289,10 +290,10 @@ def _categorize_section(batch_reports: list[dict]) -> None:
                 hide_index=True,
                 width="stretch",
             )
-            st.caption("Publique o script do domínio na OneTrust e volte a analisar para confirmar.")
+            st.caption("Publish the domain script in OneTrust and scan again to confirm.")
     audit = read_audit(state.reports_dir() / AUDIT_FILE)
     if audit:
-        with st.expander(f"Registo de alterações na OneTrust ({len(audit)} mais recentes)"):
+        with st.expander(f"OneTrust change log ({len(audit)} most recent)"):
             st.dataframe(pd.DataFrame(audit), hide_index=True, width="stretch")
 
 
@@ -300,9 +301,9 @@ def render() -> None:
     all_batches = state.batches()
     head, picker = st.columns([3, 2], vertical_alignment="bottom")
     with head:
-        theme.page_header("Plano de ação", "O que corrigir, quem corrige, como e como verificar.", eyebrow="Remediação")
+        theme.page_header("Action plan", "What to fix, who fixes it, how, and how to verify.", eyebrow="Remediation")
     if not all_batches:
-        theme.note("Ainda não há relatórios. Inicie uma análise na página Nova análise.")
+        theme.note("There are no reports yet. Start a scan on the New scan page.")
         return
     with picker:
         batch_picker()
@@ -316,47 +317,45 @@ def render() -> None:
     statuses = Counter(saved.get(a.key, {}).get("status") or STATUSES[0] for a in plan)
     theme.kpi_row(
         [
-            theme.kpi("Ações", len(plan), f"{len(batch.reports)} domínios", "info"),
+            theme.kpi("Actions", len(plan), f"{len(batch.reports)} domains", "info"),
+            theme.kpi("P1 · fix now", counts["P1"], "critical or wide-reaching", "bad" if counts["P1"] else "ok"),
+            theme.kpi("P2 · next cycle", counts["P2"], "high priority", "warn" if counts["P2"] else "ok"),
+            theme.kpi("In progress", statuses["In progress"], "with an owner", "info"),
             theme.kpi(
-                "P1 · corrigir já", counts["P1"], "críticas ou de grande alcance", "bad" if counts["P1"] else "ok"
-            ),
-            theme.kpi("P2 · próximo ciclo", counts["P2"], "alta prioridade", "warn" if counts["P2"] else "ok"),
-            theme.kpi("Em curso", statuses["Em curso"], "com responsável", "info"),
-            theme.kpi(
-                "Feitas ou aceites",
-                statuses["Feito"] + statuses["Risco aceite"],
-                "a confirmar na próxima análise",
+                "Done or accepted",
+                statuses["Done"] + statuses["Risk accepted"],
+                "to confirm in the next scan",
                 "ok",
             ),
         ]
     )
     st.markdown("&nbsp;")
-    with st.expander("Plataforma detetada", expanded=False):
+    with st.expander("Detected platform", expanded=False):
         st.dataframe(pd.DataFrame(platform_rows(batch.reports)), hide_index=True, width="stretch")
     if not plan:
-        st.success("Nada a corrigir neste lote.")
+        st.success("Nothing to fix in this batch.")
         return
-    tabs = st.tabs(["Ações", "Integrações Adobe e OneTrust", "Exportar"])
+    tabs = st.tabs(["Actions", "Adobe and OneTrust integrations", "Export"])
     with tabs[0]:
         _actions_tab(plan, saved)
     with tabs[1]:
         _integrations_tab(plan, reports)
     with tabs[2]:
         rows = action_rows(plan, saved)
-        st.dataframe(pd.DataFrame(rows).drop(columns=["Chave"]), hide_index=True, width="stretch")
+        st.dataframe(pd.DataFrame(rows).drop(columns=["Key"]), hide_index=True, width="stretch")
         left, right = st.columns(2)
         left.download_button(
-            "Descarregar CSV",
+            "Download CSV",
             pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"plano-de-acao-{batch.id}.csv",
+            file_name=f"action-plan-{batch.id}.csv",
             mime="text/csv",
             type="primary",
             width="stretch",
         )
         right.download_button(
-            "Descarregar Markdown",
-            markdown_plan(plan, saved, f"Plano de ação · {batch.label}"),
-            file_name=f"plano-de-acao-{batch.id}.md",
+            "Download Markdown",
+            markdown_plan(plan, saved, f"Action plan · {batch.label}"),
+            file_name=f"action-plan-{batch.id}.md",
             mime="text/markdown",
             width="stretch",
         )

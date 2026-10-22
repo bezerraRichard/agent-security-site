@@ -23,7 +23,7 @@ def batch_picker() -> None:
     ids = [b.id for b in all_batches]
     labels = {b.id: b.label for b in all_batches}
     chosen = st.selectbox(
-        "Lote de análise",
+        "Scan batch",
         ids,
         index=ids.index(current.id) if current else 0,
         format_func=lambda batch_id: labels[batch_id],
@@ -37,9 +37,9 @@ def render() -> None:
     all_batches = state.batches()
     head, picker = st.columns([3, 2], vertical_alignment="bottom")
     with head:
-        theme.page_header("Painel", "Visão consolidada de todos os domínios de um lote.", eyebrow="Portefólio")
+        theme.page_header("Dashboard", "Consolidated view of every domain in a batch.", eyebrow="Portfolio")
     if not all_batches:
-        theme.note("Ainda não há relatórios. Inicie uma análise na página Nova análise.")
+        theme.note("There are no reports yet. Start a scan on the New scan page.")
         return
     with picker:
         batch_picker()
@@ -47,26 +47,26 @@ def render() -> None:
     assert batch is not None
     rows = [domain_row(entry) for entry in batch.reports]
 
-    pages = sum(row["Páginas"] for row in rows)
-    severe = sum(row["Crítico"] + row["Alto"] for row in rows)
+    pages = sum(row["Pages"] for row in rows)
+    severe = sum(row["Critical"] + row["High"] for row in rows)
     distinct = sum(sum(row[label] for label in SEVERITY_LABELS.values()) for row in rows)
-    complete = sum(row["Estado"] == "Completa" for row in rows)
+    complete = sum(row["Status"] == "Complete" for row in rows)
     was_fail = sum(
-        sum(1 for b in bitsight_rows(entry.report) if b["Vetor"] == "WAS" and b["Resultado"] == "Falha")
+        sum(1 for b in bitsight_rows(entry.report) if b["Vector"] == "WAS" and b["Result"] == "Fail")
         for entry in batch.reports
     )
     theme.kpi_row(
         [
-            theme.kpi("Domínios", len(rows), f"{complete} com cobertura completa", "info"),
-            theme.kpi("Páginas avaliadas", f"{pages:,}".replace(",", " "), "em todos os domínios", "info"),
-            theme.kpi("Problemas distintos", distinct, "somados por domínio", "warn" if distinct else "ok"),
-            theme.kpi("Críticos e altos", severe, "a tratar primeiro", "bad" if severe else "ok"),
-            theme.kpi("Falhas BitSight WAS", was_fail, "avaliações em falha", "bad" if was_fail else "ok"),
+            theme.kpi("Domains", len(rows), f"{complete} with complete coverage", "info"),
+            theme.kpi("Pages assessed", f"{pages:,}".replace(",", " "), "across all domains", "info"),
+            theme.kpi("Distinct issues", distinct, "summed per domain", "warn" if distinct else "ok"),
+            theme.kpi("Critical and high", severe, "fix first", "bad" if severe else "ok"),
+            theme.kpi("BitSight WAS failures", was_fail, "failing assessments", "bad" if was_fail else "ok"),
         ]
     )
     st.markdown("&nbsp;")
 
-    st.markdown("##### Domínios")
+    st.markdown("##### Domains")
     table = pd.DataFrame(rows)
     selection = st.dataframe(
         table.drop(columns=["path"]),
@@ -75,44 +75,44 @@ def render() -> None:
         on_select="rerun",
         selection_mode="single-row",
         column_config={
-            "Controlos aprovados": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
-            "Páginas": st.column_config.NumberColumn(format="%d"),
+            "Controls passed": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
+            "Pages": st.column_config.NumberColumn(format="%d"),
         },
     )
     picked = selection.selection.rows if selection else []
     if picked:
         row = rows[picked[0]]
-        if st.button(f"Abrir detalhe de {row['Domínio']}", type="primary"):
+        if st.button(f"Open details for {row['Domain']}", type="primary"):
             state.select_report(row["path"])
             st.switch_page(st.session_state["pages"]["domain"])
     else:
-        st.caption("Selecione uma linha para abrir o detalhe do domínio.")
+        st.caption("Select a row to open the domain details.")
 
     left, right = st.columns(2, gap="large")
     with left, st.container(border=True):
-        st.markdown("##### Problemas por severidade")
+        st.markdown("##### Issues by severity")
         severity_rows = severity_by_domain(batch.reports)
         if severity_rows:
             st.altair_chart(theme.stacked_severity_chart(severity_rows), width="stretch")
         else:
-            st.success("Nenhum problema encontrado nos domínios deste lote.")
+            st.success("No issues found in the domains of this batch.")
     with right, st.container(border=True):
         st.markdown("##### BitSight Web Application Security")
         was_rows = []
         for entry in batch.reports:
             for row in bitsight_rows(entry.report):
-                if row["Vetor"] == "WAS":
-                    was_rows.append({"Domínio": entry.host, "Avaliação": row["Avaliação BitSight"], **row})
+                if row["Vector"] == "WAS":
+                    was_rows.append({"Domain": entry.host, "Assessment": row["BitSight assessment"], **row})
         if was_rows:
             colors = theme.BITSIGHT_COLORS
-            tooltip = ["Domínio", "Avaliação", "Resultado", "Páginas afetadas"]
-            st.altair_chart(theme.heatmap(pd.DataFrame(was_rows), "Avaliação", colors, tooltip), width="content")
+            tooltip = ["Domain", "Assessment", "Result", "Affected pages"]
+            st.altair_chart(theme.heatmap(pd.DataFrame(was_rows), "Assessment", colors, tooltip), width="content")
 
     with st.container(border=True):
-        st.markdown("##### Matriz de controlos")
-        st.caption("Cada célula mostra a severidade do problema nesse domínio, ou Aprovado quando a regra não falhou.")
+        st.markdown("##### Control matrix")
+        st.caption("Each cell shows the severity of the issue on that domain, or Pass when the rule did not fail.")
         matrix = pd.DataFrame(rule_matrix(batch.reports))
         st.altair_chart(
-            theme.heatmap(matrix, "Regra", theme.RESULT_COLORS, ["Regra", "Domínio", "Resultado", "Páginas"]),
+            theme.heatmap(matrix, "Rule", theme.RESULT_COLORS, ["Rule", "Domain", "Result", "Pages"]),
             width="content",
         )

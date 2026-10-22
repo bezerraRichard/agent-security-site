@@ -60,40 +60,38 @@ class DataTests(unittest.TestCase):
     def test_domain_row_and_controls(self):
         entry = data.ReportEntry(Path("r.json"), report(groups=[("CSP-000", "High"), ("HDR-PP-001", "Low")]))
         row = data.domain_row(entry)
-        self.assertEqual(
-            (row["Domínio"], row["Estado"], row["Alto"], row["Baixo"]), ("www.example.com", "Parcial", 1, 1)
-        )
-        self.assertAlmostEqual(row["Controlos aprovados"], (len(RULE_INFO) - 2) / len(RULE_INFO))
+        self.assertEqual((row["Domain"], row["Status"], row["High"], row["Low"]), ("www.example.com", "Partial", 1, 1))
+        self.assertAlmostEqual(row["Controls passed"], (len(RULE_INFO) - 2) / len(RULE_INFO))
         self.assertEqual(data.controls_passed(report(pages=0)), (0, len(RULE_INFO)))
 
     def test_bitsight_rows_report_failures_and_positive_only_controls(self):
         rows = {
-            r["Avaliação BitSight"]: r["Resultado"]
+            r["BitSight assessment"]: r["Result"]
             for r in data.bitsight_rows(report(groups=[("CSP-000", "High"), ("HDR-HSTS-003", "Info")]))
         }
-        self.assertEqual(rows["Content Security Policy Configurations"], "Falha")
-        self.assertEqual(rows["Mixed Content"], "Aprovado")
-        self.assertEqual(rows["HSTS Preload Directive Present (positive-only)"], "Ausente")
+        self.assertEqual(rows["Content Security Policy Configurations"], "Fail")
+        self.assertEqual(rows["Mixed Content"], "Pass")
+        self.assertEqual(rows["HSTS Preload Directive Present (positive-only)"], "Absent")
         no_data = data.bitsight_rows(report(pages=0))
-        self.assertEqual({r["Resultado"] for r in no_data}, {"Sem dados"})
+        self.assertEqual({r["Result"] for r in no_data}, {"No data"})
 
     def test_reports_from_before_the_bitsight_rules_show_no_data_for_them(self):
         legacy = report(groups=[("CSP-000", "High")])
         del legacy["summary"]["bitsight"]
-        rows = {r["Avaliação BitSight"]: r["Resultado"] for r in data.bitsight_rows(legacy)}
-        self.assertEqual(rows["Mixed Content"], "Sem dados")
-        self.assertEqual(rows["Content Security Policy Configurations"], "Falha")
+        rows = {r["BitSight assessment"]: r["Result"] for r in data.bitsight_rows(legacy)}
+        self.assertEqual(rows["Mixed Content"], "No data")
+        self.assertEqual(rows["Content Security Policy Configurations"], "Fail")
         self.assertEqual(data.controls_passed(legacy), (len(data.LEGACY_RULES) - 1, len(data.LEGACY_RULES)))
-        matrix = {r["Regra"]: r["Resultado"] for r in data.rule_matrix([data.ReportEntry(Path("r.json"), legacy)])}
-        self.assertEqual((matrix["MIXED-001"], matrix["HDR-PP-001"]), ("Sem dados", "Aprovado"))
+        matrix = {r["Rule"]: r["Result"] for r in data.rule_matrix([data.ReportEntry(Path("r.json"), legacy)])}
+        self.assertEqual((matrix["MIXED-001"], matrix["HDR-PP-001"]), ("No data", "Pass"))
 
     def test_rule_matrix_and_severity_rows(self):
         entries = [data.ReportEntry(Path("r.json"), report(groups=[("CSP-000", "High")]))]
-        matrix = {(r["Regra"], r["Resultado"]) for r in data.rule_matrix(entries)}
-        self.assertIn(("CSP-000", "Alto"), matrix)
-        self.assertIn(("HDR-PP-001", "Aprovado"), matrix)
+        matrix = {(r["Rule"], r["Result"]) for r in data.rule_matrix(entries)}
+        self.assertIn(("CSP-000", "High"), matrix)
+        self.assertIn(("HDR-PP-001", "Pass"), matrix)
         self.assertEqual(
-            data.severity_by_domain(entries), [{"Domínio": "www.example.com", "Severidade": "Alto", "Achados": 1}]
+            data.severity_by_domain(entries), [{"Domain": "www.example.com", "Severity": "High", "Findings": 1}]
         )
 
     def test_cookie_rows_translate_onetrust_states(self):
@@ -110,8 +108,8 @@ class DataTests(unittest.TestCase):
         ]
         rows = data.cookie_rows(report(cookies=cookies))
         self.assertEqual(
-            [(r["Categoria"], r["Origem"]) for r in rows],
-            [("Necessary", "Própria"), ("Não encontrado na OneTrust", "—"), ("Não classificado", "—")],
+            [(r["Category"], r["Party"]) for r in rows],
+            [("Necessary", "First-party"), ("Not found in OneTrust", "—"), ("Not classified", "—")],
         )
 
 
@@ -120,20 +118,30 @@ class PlanStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             self.assertEqual(data.load_plan_state(folder), {})
-            data.save_action_state(folder, "CSP-002", status="Em curso")
+            data.save_action_state(folder, "CSP-002", status="In progress")
             data.save_action_state(folder, "CSP-002", note="ticket 42")
             state = data.load_plan_state(folder)
-            self.assertEqual((state["CSP-002"]["status"], state["CSP-002"]["note"]), ("Em curso", "ticket 42"))
+            self.assertEqual((state["CSP-002"]["status"], state["CSP-002"]["note"]), ("In progress", "ticket 42"))
             self.assertIn("updated_at", state["CSP-002"])
             (folder / data.PLAN_STATE_FILE).write_text("corrupt", encoding="utf-8")
             self.assertEqual(data.load_plan_state(folder), {})
+
+    def test_portuguese_statuses_saved_by_older_consoles_are_translated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / data.PLAN_STATE_FILE).write_text(
+                '{"CSP-002": {"status": "Risco aceite"}, "CSP-003": {"note": "x"}}', encoding="utf-8"
+            )
+            state = data.load_plan_state(folder)
+            self.assertEqual(state["CSP-002"]["status"], "Risk accepted")
+            self.assertNotIn("status", state["CSP-003"])
 
     def test_platform_rows_mark_reports_without_detection(self):
         new = data.ReportEntry(Path("a.json"), {**report("a.example.com"), "platform": {"cdn": "Fastly", "cms": "AEM"}})
         old = data.ReportEntry(Path("b.json"), report("b.example.com"))
         rows = data.platform_rows([new, old])
         self.assertEqual((rows[0]["CDN"], rows[0]["CMS"]), ("Fastly", "AEM"))
-        self.assertEqual(rows[1]["CMS"], "Não detetado (análise anterior)")
+        self.assertEqual(rows[1]["CMS"], "Not detected (older scan)")
 
 
 class FormTests(unittest.TestCase):

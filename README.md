@@ -101,14 +101,14 @@ agent-security-console                 # abre http://localhost:8501
 agent-security-console --output-dir reports --port 8502
 ```
 
-A consola só escuta em `localhost` e não envia estatísticas de utilização. Usa a identidade visual do novobanco (paleta de www.novobanco.pt e o logótipo oficial, em `src/agent_security/console/novobanco.svg`); a fonte proprietária NovobancoText não é incluída. O relatório HTML usa a mesma identidade, com o logótipo embutido no próprio ficheiro (não carrega recursos externos). Tem cinco páginas:
+A consola só escuta em `localhost` e não envia estatísticas de utilização. Usa a identidade visual do novobanco (paleta de www.novobanco.pt e o logótipo oficial, em `src/agent_security/console/novobanco.svg`); a fonte proprietária NovobancoText não é incluída. O relatório HTML usa a mesma identidade, com o logótipo embutido no próprio ficheiro (não carrega recursos externos). A interface está em inglês. Tem seis páginas:
 
-- **Nova análise**: domínios (um por linha, com hosts adicionais opcionais na mesma linha), perfil de varredura (Rápido, Conservador, Padrão ou Personalizado), rede, OneTrust e confirmação obrigatória de autorização. A análise corre em segundo plano, com progresso por domínio e botão para cancelar.
-- **Painel**: comparação dos domínios de um lote, com indicadores, severidades, avaliações BitSight e matriz de controlos.
-- **Plano de ação**: os problemas de todos os domínios do lote agrupados em ações com prioridade (P1 a P4), responsável adequado à plataforma detetada, passos, snippet de correção e comando de verificação. Inclui ações OneTrust (cookies por registar, sem categoria, ou não essenciais definidos antes do consentimento), um `cdn.yaml` sugerido para AEM as a Cloud Service e exportação em CSV e Markdown. O estado, o responsável e as notas de cada ação ficam em `reports/action-plan-state.json`; uma ação marcada como feita volta a ser assinalada se o problema reaparecer.
-- **Domínio**: problemas filtráveis com evidência e remediação, alinhamento BitSight, inventário de cookies, cobertura e download do HTML/JSON.
-- **Histórico**: todos os relatórios da pasta, incluindo os anteriores à consola.
-- **Regras e BitSight**: o catálogo de regras e o mapeamento para a BitSight.
+- **New scan**: domínios (um por linha, com hosts adicionais opcionais na mesma linha), perfil de varredura (Quick, Conservative, Standard ou Custom), rede, OneTrust e confirmação obrigatória de autorização. A análise corre em segundo plano, com progresso por domínio e botão para cancelar.
+- **Dashboard**: comparação dos domínios de um lote, com indicadores, severidades, avaliações BitSight e matriz de controlos.
+- **Action plan**: os problemas de todos os domínios do lote agrupados em ações com prioridade (P1 a P4), responsável adequado à plataforma detetada, passos, snippet de correção e comando de verificação. Inclui ações OneTrust (cookies por registar, sem categoria, ou não essenciais definidos antes do consentimento), um `cdn.yaml` sugerido para AEM as a Cloud Service e exportação em CSV e Markdown. O estado, o responsável e as notas de cada ação ficam em `reports/action-plan-state.json`; uma ação marcada como feita volta a ser assinalada se o problema reaparecer.
+- **Domain**: problemas filtráveis com evidência e remediação, alinhamento BitSight, inventário de cookies, cobertura e download do HTML/JSON.
+- **History**: todos os relatórios da pasta, incluindo os anteriores à consola.
+- **Rules and BitSight**: o catálogo de regras e o mapeamento para a BitSight.
 
 As credenciais da OneTrust continuam a vir só do ambiente: defina as variáveis antes de abrir a consola.
 
@@ -129,7 +129,7 @@ Só os nomes dos cookies, nunca os valores, são enviados ao seu tenant. Um cook
 
 ### Categorizar cookies na OneTrust (escrita, com confirmação)
 
-Na consola, em **Plano de ação → Integrações Adobe e OneTrust**, é possível mudar a categoria de cookies que existem no catálogo do tenant, pela API [Update Cookie](https://developer.onetrust.com/onetrust/reference/updatecookie) (`PUT /api/cookiemanager/v1/cookies`). A escrita está desligada por omissão e usa credenciais próprias, com o scope `COOKIE` (leitura e escrita):
+Na consola, em **Action plan → Adobe and OneTrust integrations**, é possível mudar a categoria de cookies que existem no catálogo do tenant, pela API [Update Cookie](https://developer.onetrust.com/onetrust/reference/updatecookie) (`PUT /api/cookiemanager/v1/cookies`). A escrita está desligada por omissão e usa credenciais próprias, com o scope `COOKIE` (leitura e escrita):
 
 ```powershell
 $env:ONETRUST_WRITE_CLIENT_ID = "..."

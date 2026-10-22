@@ -23,13 +23,11 @@ BITSIGHT_SOURCES = (
 
 
 def render() -> None:
-    theme.page_header(
-        "Regras e BitSight", "O que é verificado e como se relaciona com a BitSight.", eyebrow="Metodologia"
-    )
+    theme.page_header("Rules and BitSight", "What is checked and how it relates to BitSight.", eyebrow="Methodology")
     theme.note(
-        "O rating BitSight usa, desde 10/07/2025, o vetor Web Application Security (WAS), que substituiu o Web "
-        "Application Headers (WAH). O mapeamento abaixo é aproximado e baseado na documentação pública da BitSight; "
-        "a BitSight carrega a página inicial de cada domínio num browser e não percorre o site."
+        "Since 10 July 2025 the BitSight rating uses the Web Application Security (WAS) risk vector, which replaced "
+        "Web Application Headers (WAH). The mapping below is approximate and based on public BitSight documentation; "
+        "BitSight loads the home page of each domain in a browser and does not crawl the site."
     )
     st.markdown("&nbsp;")
     rows = []
@@ -37,13 +35,13 @@ def render() -> None:
         vector, category, assessment = BITSIGHT.get(rule, (None, "Not assessed by Bitsight", None))
         rows.append(
             {
-                "Regra": rule,
-                "Secção": SECTION_LABELS.get(section_of(rule), section_of(rule)),
-                "Vetor BitSight": {WAS: "WAS", WAH: "WAH (legado)"}.get(vector or "", "—"),
-                "Categoria": category,
-                "Avaliação BitSight": assessment or "—",
-                "Descrição": description,
-                "Referência": references[0] if references else None,
+                "Rule": rule,
+                "Section": SECTION_LABELS.get(section_of(rule), section_of(rule)),
+                "BitSight vector": {WAS: "WAS", WAH: "WAH (legacy)"}.get(vector or "", "—"),
+                "Category": category,
+                "BitSight assessment": assessment or "—",
+                "Description": description,
+                "Reference": references[0] if references else None,
             }
         )
     st.dataframe(
@@ -51,13 +49,13 @@ def render() -> None:
         hide_index=True,
         width="stretch",
         height=36 * (len(rows) + 1) + 4,
-        column_config={"Referência": st.column_config.LinkColumn(display_text="abrir")},
+        column_config={"Reference": st.column_config.LinkColumn(display_text="open")},
     )
-    st.markdown("##### Fontes BitSight")
+    st.markdown("##### BitSight sources")
     st.markdown("\n".join(f"- [{title}]({url})" for title, url in BITSIGHT_SOURCES))
-    st.markdown("##### Limitações")
+    st.markdown("##### Limitations")
     st.markdown(
-        "- Só HTML estático: páginas geradas por JavaScript, formulários e áreas autenticadas não são cobertos.\n"
-        "- Não avalia protocolos nem cifras TLS (vetores BitSight SSL/TLS) nem bibliotecas JavaScript vulneráveis.\n"
-        "- Os valores dos cookies nunca são guardados; só os nomes vão para a OneTrust."
+        "- Static HTML only: pages built by JavaScript, forms and authenticated areas are not covered.\n"
+        "- TLS protocols and ciphers (BitSight SSL/TLS vectors) and vulnerable JavaScript libraries are not assessed.\n"
+        "- Cookie values are never stored; only cookie names are sent to OneTrust."
     )

@@ -12,50 +12,46 @@ from agent_security.console.forms import PROFILES, ScanOptions, build_configs, p
 from agent_security.console.jobs import ScanJob
 
 STATE_LABELS = {
-    "queued": ("Em espera", "neutral"),
-    "running": ("A analisar", "warn"),
-    "done": ("Concluído", "ok"),
-    "failed": ("Falhou", "bad"),
-    "cancelled": ("Cancelado", "neutral"),
+    "queued": ("Queued", "neutral"),
+    "running": ("Scanning", "warn"),
+    "done": ("Done", "ok"),
+    "failed": ("Failed", "bad"),
+    "cancelled": ("Cancelled", "neutral"),
 }
 ROUTES = {
-    "auto": "Automático (proxy do sistema, depois direto)",
-    "proxy": "Proxy explícito",
-    "direct": "Ligação direta",
+    "auto": "Automatic (system proxy, then direct)",
+    "proxy": "Explicit proxy",
+    "direct": "Direct connection",
 }
 
 
 def _limits() -> tuple[int, int, float, float]:
-    profile = st.segmented_control(
-        "Perfil de varredura", [*PROFILES, "Personalizado"], default="Conservador", key="profile"
-    )
+    profile = st.segmented_control("Scan profile", [*PROFILES, "Custom"], default="Conservative", key="profile")
     if profile in PROFILES:
         pages, depth, delay, minutes = PROFILES[profile]
-        st.caption(
-            f"Até {pages} páginas por domínio · profundidade {depth} · {delay:g} s entre pedidos · {minutes:g} min"
-        )
+        st.caption(f"Up to {pages} pages per domain · depth {depth} · {delay:g} s between requests · {minutes:g} min")
         return pages, depth, delay, minutes
     columns = st.columns(4)
-    pages = columns[0].number_input("Máx. páginas", 1, HARD_MAX_PAGES, 100, step=50)
-    depth = columns[1].number_input("Profundidade", 0, 50, 3)
-    delay = columns[2].number_input("Pausa (s)", MIN_DELAY_SECONDS, 30.0, 1.0, step=0.1, format="%.1f")
-    minutes = columns[3].number_input("Limite (min)", 1.0, 600.0, 20.0, step=5.0)
+    pages = columns[0].number_input("Max pages", 1, HARD_MAX_PAGES, 100, step=50)
+    depth = columns[1].number_input("Depth", 0, 50, 3)
+    delay = columns[2].number_input("Delay (s)", MIN_DELAY_SECONDS, 30.0, 1.0, step=0.1, format="%.1f")
+    minutes = columns[3].number_input("Time limit (min)", 1.0, 600.0, 20.0, step=5.0)
     return int(pages), int(depth), float(delay), float(minutes)
 
 
 def _form() -> None:
     with st.container(border=True):
-        st.markdown("##### Domínios")
+        st.markdown("##### Domains")
         text = st.text_area(
-            "Domínios",
+            "Domains",
             key="domains",
             height=130,
             placeholder="www.example.com\nwww.example.org  shop.example.org  cdn.example.org",
             label_visibility="collapsed",
         )
         st.caption(
-            "Um domínio por linha; outros hostnames autorizados para esse domínio podem seguir na mesma linha. "
-            "Cada domínio é analisado em separado e tem o seu próprio relatório."
+            "One domain per line; other authorized hostnames for that domain can follow on the same line. "
+            "Each domain is scanned separately and gets its own report."
         )
         rows = parse_domain_lines(text)
         if rows:
@@ -68,59 +64,58 @@ def _form() -> None:
             )
 
     with st.container(border=True):
-        st.markdown("##### Limites")
+        st.markdown("##### Limits")
         pages, depth, delay, minutes = _limits()
         left, right = st.columns(2)
-        sitemap = left.toggle("Usar sitemap.xml como ponto de partida", value=False)
-        robots = right.toggle("Respeitar robots.txt", value=True)
+        sitemap = left.toggle("Use sitemap.xml as a starting point", value=False)
+        robots = right.toggle("Respect robots.txt", value=True)
         if not robots:
-            theme.note("Ignorar o robots.txt só com instrução explícita do responsável pelo site.", warn=True)
+            theme.note("Only ignore robots.txt when the site owner has explicitly asked you to.", warn=True)
 
-    with st.expander("Rede"):
-        route = st.radio("Rota", list(ROUTES), format_func=lambda route: ROUTES[route], horizontal=True)
+    with st.expander("Network"):
+        route = st.radio("Route", list(ROUTES), format_func=lambda route: ROUTES[route], horizontal=True)
         proxy, fallback = "", False
         if route == "proxy":
-            proxy = st.text_input("URL do proxy", placeholder="http://proxy.example:8080")
-            fallback = st.checkbox("Se o proxy falhar, tentar ligação direta")
-        ca_bundle = st.text_input(
-            "Ficheiro PEM com CAs adicionais (opcional)", help="Ex.: CA de inspeção TLS corporativa"
-        )
+            proxy = st.text_input("Proxy URL", placeholder="http://proxy.example:8080")
+            fallback = st.checkbox("If the proxy fails, try a direct connection")
+        ca_bundle = st.text_input("PEM file with extra CAs (optional)", help="E.g. a corporate TLS-inspection CA")
 
     onetrust = state.onetrust_status()
     with st.container(border=True):
-        st.markdown("##### Classificação de cookies (OneTrust)")
+        st.markdown("##### Cookie classification (OneTrust)")
         if onetrust["configured"]:
             st.markdown(
-                theme.pill("Configurada", "ok")
+                theme.pill("Configured", "ok")
                 + f"&nbsp; <span class='domain-progress'>{theme.esc(onetrust['hostname'])}"
-                f" · idioma {theme.esc(onetrust['language'])}</span>",
+                f" · language {theme.esc(onetrust['language'])}</span>",
                 unsafe_allow_html=True,
             )
         else:
             st.markdown(theme.pill(onetrust["detail"], "neutral"), unsafe_allow_html=True)
             st.caption(
-                "Defina ONETRUST_HOSTNAME, ONETRUST_CLIENT_ID e ONETRUST_CLIENT_SECRET antes de abrir a consola."
+                "Set ONETRUST_HOSTNAME, ONETRUST_CLIENT_ID and ONETRUST_CLIENT_SECRET (e.g. in .env) before "
+                "starting the console."
             )
-        classify = st.toggle("Classificar cookies", value=onetrust["configured"], disabled=not onetrust["configured"])
+        classify = st.toggle("Classify cookies", value=onetrust["configured"], disabled=not onetrust["configured"])
         language, domain_ids = "", ""
         if onetrust["configured"] and classify:
             left, right = st.columns([1, 3])
-            language = left.text_input("Idioma", placeholder=onetrust["language"])
-            domain_ids = right.text_input("IDs de domínio OneTrust (opcional)", help="UUIDs separados por vírgulas")
-        st.caption("Só os nomes dos cookies são enviados ao seu tenant OneTrust; os valores nunca são guardados.")
+            language = left.text_input("Language", placeholder=onetrust["language"])
+            domain_ids = right.text_input("OneTrust domain IDs (optional)", help="Comma-separated UUIDs")
+        st.caption("Only cookie names are sent to your OneTrust tenant; values are never stored.")
 
     authorized = st.checkbox(
-        "Confirmo que tenho autorização escrita para avaliar todos os domínios e hosts indicados.", key="authorized"
+        "I confirm I have written authorization to assess every domain and host listed.", key="authorized"
     )
     registry = state.registry()
     busy = bool(registry.current and registry.current.running)
     has_domains = bool(rows)
     if st.button(
-        "Iniciar análise",
+        "Start scan",
         type="primary",
         width="stretch",
         disabled=busy or not authorized or not has_domains,
-        help="Já existe uma análise em curso." if busy else None,
+        help="A scan is already running." if busy else None,
     ):
         options = ScanOptions(
             max_pages=pages,
@@ -149,11 +144,11 @@ def _form() -> None:
 
 def _job_body(job: ScanJob) -> None:
     done = sum(d.state in {"done", "failed", "cancelled"} for d in job.domains)
-    headline = "Em curso" if job.running else ("Cancelada" if job.cancel_requested else "Concluída")
+    headline = "Running" if job.running else ("Cancelled" if job.cancel_requested else "Finished")
     tone = "warn" if job.running else ("neutral" if job.cancel_requested else "ok")
     st.markdown(
-        f"{theme.pill(headline, tone)} &nbsp;<span class='domain-progress'>Lote {theme.esc(job.id)} · "
-        f"{done}/{len(job.domains)} domínios</span>",
+        f"{theme.pill(headline, tone)} &nbsp;<span class='domain-progress'>Batch {theme.esc(job.id)} · "
+        f"{done}/{len(job.domains)} domains</span>",
         unsafe_allow_html=True,
     )
     for domain in job.domains:
@@ -162,23 +157,23 @@ def _job_body(job: ScanJob) -> None:
             st.html(f"<b>{theme.esc(domain.target)}</b> &nbsp; {theme.pill(label, tone)}")
             if domain.state == "running":
                 st.progress(
-                    min(domain.pages / max(domain.max_pages, 1), 1.0), text=f"{domain.pages}/{domain.max_pages} páginas"
+                    min(domain.pages / max(domain.max_pages, 1), 1.0), text=f"{domain.pages}/{domain.max_pages} pages"
                 )
                 st.markdown(f"<div class='domain-progress'>{theme.esc(domain.last_url)}</div>", unsafe_allow_html=True)
             elif domain.state in {"done", "cancelled"} and domain.status:
                 st.markdown(
-                    f"<div class='domain-progress'>{domain.pages} páginas · {domain.findings} problemas distintos · "
+                    f"<div class='domain-progress'>{domain.pages} pages · {domain.findings} distinct issues · "
                     f"{theme.esc(domain.status)}</div>",
                     unsafe_allow_html=True,
                 )
             elif domain.state == "failed":
-                st.error(domain.error or "Erro desconhecido")
+                st.error(domain.error or "Unknown error")
     if job.error:
         st.error(job.error)
     if job.running:
-        if st.button("Cancelar análise", disabled=job.cancel_requested, width="stretch"):
+        if st.button("Cancel scan", disabled=job.cancel_requested, width="stretch"):
             job.cancel()
-    elif st.button("Ver painel do lote", type="primary", width="stretch"):
+    elif st.button("Open batch dashboard", type="primary", width="stretch"):
         state.select_batch(job.id)
         st.switch_page(st.session_state["pages"]["dashboard"])
 
@@ -192,24 +187,24 @@ def _live_job(job: ScanJob) -> None:
 
 def render() -> None:
     theme.page_header(
-        "Nova análise",
-        "Varredura passiva de cabeçalhos, CSP, cookies e conteúdo, com alinhamento BitSight e classificação OneTrust.",
-        eyebrow="Análise",
+        "New scan",
+        "Passive scan of headers, CSP, cookies and content, with BitSight alignment and OneTrust classification.",
+        eyebrow="Scan",
     )
     form, progress = st.columns([3, 2], gap="large")
     with form:
         _form()
     with progress:
-        st.markdown("##### Progresso")
+        st.markdown("##### Progress")
         job = state.registry().current
         if job is None:
-            theme.note("Nenhuma análise iniciada nesta sessão da consola.")
+            theme.note("No scan started in this console session.")
         elif job.running:
             _live_job(job)
         else:
             _job_body(job)
         st.markdown("&nbsp;")
         theme.note(
-            "Só pedidos GET, um de cada vez, com pausa entre pedidos. Não há autenticação, formulários nem payloads "
-            "de ataque, e os redirecionamentos para fora dos hosts autorizados não são seguidos."
+            "GET requests only, one at a time, with a delay between requests. No authentication, forms or attack "
+            "payloads, and redirects outside the authorized hosts are not followed."
         )
