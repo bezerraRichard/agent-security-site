@@ -53,7 +53,8 @@ with st.sidebar:
         "<div class='side-meta'><div class='product'>HTTP Security Console</div>"
         f"<b>OneTrust</b> · {onetrust_text}<br>"
         f"<b>Status</b> · {activity}<br>"
-        f"<b>Reports</b> · {theme.esc(state.reports_dir().name)}/<br><br>"
+        f"<b>Reports</b> · {theme.esc(state.reports_dir().name)}/<br>"
+        "<b>Theme</b> · System, Light or Dark in the ⋮ menu<br><br>"
         "GET requests only · cookie values never stored</div>",
         unsafe_allow_html=True,
     )

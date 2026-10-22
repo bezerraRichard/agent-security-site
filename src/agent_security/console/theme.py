@@ -1,4 +1,5 @@
-"""Visual identity of the console (novobanco palette, from www.novobanco.pt): colours, CSS and HTML components."""
+"""Visual identity of the console (novobanco palette, from www.novobanco.pt), for both the light and the dark theme:
+colours, CSS and HTML components."""
 
 from __future__ import annotations
 
@@ -10,88 +11,90 @@ import pandas as pd
 import streamlit as st
 
 PRIMARY = "#009F98"  # novobanco teal
-PRIMARY_DARK = "#007179"
 PRIMARY_LIGHT = "#00B9B2"
-INK = "#273C4E"  # novobanco navy, used for headings and text
-MUTED = "#54616C"
-SUBTLE = "#808B94"
-BORDER = "#D6E4E6"
-SURFACE = "#EDF4F5"
+SUBTLE = "#808B94"  # mid grey, readable on light and dark backgrounds
 ACCENT = "#F7D54E"
+# The console runs with a light and a dark theme (see console/__init__.py), so the colours below are mid tones or
+# translucent tints that read well on both, and text inherits the active theme's colour.
+TINT = "rgba(128, 150, 160, 0.10)"
+LINE = "rgba(128, 150, 160, 0.30)"
 SEVERITY_COLORS = {
-    "Critical": "#7A1F2B",
+    "Critical": "#9E2A38",
     "High": "#D64545",
     "Medium": "#F2A93B",
     "Low": "#3E7CB1",
     "Info": SUBTLE,
 }
-PASS_COLOR = "#BFE8E5"
-RESULT_COLORS = {**SEVERITY_COLORS, "Pass": PASS_COLOR, "No data": "#EEF2F3"}
+PASS_COLOR = "rgba(0, 159, 152, 0.40)"
+NO_DATA_COLOR = "rgba(128, 150, 160, 0.22)"
+RESULT_COLORS = {**SEVERITY_COLORS, "Pass": PASS_COLOR, "No data": NO_DATA_COLOR}
 # Bitsight outcomes: chart colours and table cell styles.
 BITSIGHT_COLORS = {
     "Fail": SEVERITY_COLORS["High"],
     "Absent": SEVERITY_COLORS["Medium"],
     "Pass": PRIMARY,
     "Present": PRIMARY_LIGHT,
-    "No data": "#DCE5E7",
+    "No data": NO_DATA_COLOR,
 }
 BITSIGHT_CELL_STYLES = {
-    "Fail": "background-color:#FBE3E3;color:#9B2C2C;font-weight:600",
-    "Absent": "background-color:#FDF3D0;color:#8A5A00;font-weight:600",
-    "Pass": f"background-color:#DDF3F1;color:{PRIMARY_DARK};font-weight:600",
-    "Present": f"background-color:#DDF3F1;color:{PRIMARY_DARK};font-weight:600",
+    "Fail": "background-color:rgba(214,69,69,.18);color:#D64545;font-weight:600",
+    "Absent": "background-color:rgba(242,169,59,.20);color:#C9861A;font-weight:600",
+    "Pass": f"background-color:rgba(0,159,152,.18);color:{PRIMARY};font-weight:600",
+    "Present": f"background-color:rgba(0,159,152,.18);color:{PRIMARY};font-weight:600",
 }
 STATUS_TONES = {"Complete": "ok", "Partial": "warn", "Incomplete": "bad"}
 
 CSS = f"""
 <style>
-:root {{ --primary:{PRIMARY}; --ink:{INK}; --muted:{MUTED}; --border:{BORDER}; --surface:{SURFACE}; }}
-#MainMenu, footer, [data-testid="stDeployButton"] {{ visibility: hidden; }}
+:root {{ --primary:{PRIMARY}; --border:{LINE}; --surface:{TINT}; }}
+footer, [data-testid="stDeployButton"] {{ visibility: hidden; }}
 .block-container {{ padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1680px; }}
-h1, h2, h3 {{ color: var(--ink); letter-spacing: -0.01em; }}
-[data-testid="stSidebar"] {{ background:#FFFFFF; border-right:1px solid var(--border); }}
-[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] span {{ color:var(--ink); font-weight:500; }}
+h1, h2, h3 {{ letter-spacing: -0.01em; }}
+[data-testid="stSidebar"] {{ border-right:1px solid var(--border); }}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] span {{ font-weight:500; }}
 [data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover {{ background:var(--surface); }}
 [data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] {{
   background:var(--surface); box-shadow:inset 3px 0 0 var(--primary); }}
 [data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] span {{
-  color:{PRIMARY_DARK}; font-weight:700; }}
+  color:var(--primary); font-weight:700; }}
 [data-testid="stSidebar"] [data-testid="stNavSectionHeader"] {{ color:{SUBTLE}; text-transform:uppercase;
   letter-spacing:.08em; font-size:.7rem; font-weight:700; }}
 [data-testid="stSidebarHeader"] img {{ height:1.9rem; max-width:100%; }}
-.product {{ font-size:.78rem; font-weight:700; color:var(--ink); letter-spacing:.02em; margin:0 0 .5rem; }}
+.product {{ font-size:.78rem; font-weight:700; letter-spacing:.02em; margin:0 0 .5rem; }}
 .side-meta {{ font-size:.76rem; color:{SUBTLE}; line-height:1.7; }}
-.side-meta b {{ color:var(--ink); font-weight:600; }}
+.side-meta b {{ color:inherit; font-weight:600; }}
 .stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {{ border-radius:999px; font-weight:700; }}
 .stButton button, .stDownloadButton button {{ border-radius:999px; }}
 .page-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem;
   border-bottom:1px solid var(--border); padding-bottom:.9rem; margin-bottom:1.2rem; }}
-.page-title {{ font-size:1.65rem; font-weight:750; color:var(--ink); margin:0; }}
-.page-sub {{ color:var(--muted); font-size:.92rem; margin-top:.15rem; }}
+.page-title {{ font-size:1.65rem; font-weight:750; margin:0; }}
+.page-sub {{ opacity:.75; font-size:.92rem; margin-top:.15rem; }}
 .eyebrow {{ text-transform:uppercase; letter-spacing:.08em; font-size:.7rem; font-weight:700; color:var(--primary); }}
-.kpi {{ background:#fff; border:1px solid var(--border); border-radius:14px; padding:1rem 1.1rem;
-  box-shadow:0 1px 2px rgba(39,60,78,.05); height:100%; }}
-.kpi-label {{ font-size:.76rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }}
-.kpi-value {{ font-size:1.9rem; font-weight:750; color:var(--ink); line-height:1.2; margin-top:.2rem; }}
-.kpi-sub {{ font-size:.8rem; color:var(--muted); }}
+.kpi {{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1rem 1.1rem;
+  height:100%; }}
+.kpi-label {{ font-size:.76rem; font-weight:600; opacity:.75; text-transform:uppercase; letter-spacing:.05em; }}
+.kpi-value {{ font-size:1.9rem; font-weight:750; line-height:1.2; margin-top:.2rem; }}
+.kpi-sub {{ font-size:.8rem; opacity:.75; }}
 .kpi.tone-bad {{ border-top:3px solid #D64545; }} .kpi.tone-warn {{ border-top:3px solid #F2A93B; }}
-.kpi.tone-ok {{ border-top:3px solid var(--primary); }} .kpi.tone-info {{ border-top:3px solid var(--ink); }}
+.kpi.tone-ok {{ border-top:3px solid var(--primary); }} .kpi.tone-info {{ border-top:3px solid {SUBTLE}; }}
 .pill {{ display:inline-block; padding:.12rem .6rem; border-radius:999px; font-size:.75rem; font-weight:650; }}
-.pill.ok {{ background:#DDF3F1; color:{PRIMARY_DARK}; }} .pill.warn {{ background:#FDF3D0; color:#8A5A00; }}
-.pill.bad {{ background:#FBE3E3; color:#9B2C2C; }} .pill.neutral {{ background:var(--surface); color:var(--ink); }}
+.pill.ok {{ background:rgba(0,159,152,.16); color:var(--primary); }}
+.pill.warn {{ background:rgba(242,169,59,.20); color:#C9861A; }}
+.pill.bad {{ background:rgba(214,69,69,.16); color:#D64545; }}
+.pill.neutral {{ background:var(--surface); color:inherit; }}
 .sev {{ display:inline-block; padding:.1rem .55rem; border-radius:6px; font-size:.74rem; font-weight:700; color:#fff; }}
-.panel {{ background:#fff; border:1px solid var(--border); border-radius:14px; padding:1.1rem 1.2rem; }}
+.panel {{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.1rem 1.2rem; }}
 .note {{ background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--primary);
-  border-radius:10px; padding:.75rem 1rem; color:var(--ink); font-size:.88rem; }}
-.note.warn {{ border-left-color:{ACCENT}; background:#FFFBEA; }}
+  border-radius:10px; padding:.75rem 1rem; font-size:.88rem; }}
+.note.warn {{ border-left-color:{ACCENT}; background:rgba(247,213,78,.14); }}
 .kv {{ display:grid; grid-template-columns:max-content 1fr; gap:.35rem 1.2rem; font-size:.88rem; }}
-.kv dt {{ color:var(--muted); }} .kv dd {{ margin:0; color:var(--ink); overflow-wrap:anywhere; }}
+.kv dt {{ opacity:.7; }} .kv dd {{ margin:0; overflow-wrap:anywhere; }}
 .evidence {{ font-family:Consolas,'SFMono-Regular',monospace; font-size:.8rem; background:var(--surface);
   border:1px solid var(--border); border-radius:8px; padding:.55rem .7rem; overflow-wrap:anywhere;
   white-space:pre-wrap; }}
-.domain-progress {{ font-size:.82rem; color:var(--muted); overflow-wrap:anywhere; }}
-div[data-testid="stTabs"] button p {{ font-weight:600; color:var(--ink); }}
-div[data-testid="stTabs"] button[aria-selected="true"] p {{ color:{PRIMARY_DARK}; }}
+.domain-progress {{ font-size:.82rem; opacity:.75; overflow-wrap:anywhere; }}
+div[data-testid="stTabs"] button p {{ font-weight:600; }}
+div[data-testid="stTabs"] button[aria-selected="true"] p {{ color:var(--primary); }}
 </style>
 """
 
@@ -134,7 +137,7 @@ def status_pill(label: str) -> str:
 
 
 def severity_badge(label: str) -> str:
-    return f"<span class='sev' style='background:{SEVERITY_COLORS.get(label, MUTED)}'>{esc(label)}</span>"
+    return f"<span class='sev' style='background:{SEVERITY_COLORS.get(label, SUBTLE)}'>{esc(label)}</span>"
 
 
 def note(text: str, warn: bool = False) -> None:
@@ -187,7 +190,7 @@ def heatmap(data: pd.DataFrame, y: str, colors: dict[str, str], tooltip: list[st
     """Domains as columns of fixed width, so one domain does not stretch across the page."""
     return (
         alt.Chart(data)
-        .mark_rect(stroke="#FFFFFF", strokeWidth=2, cornerRadius=4)
+        .mark_rect(stroke=None, cornerRadius=4, width=alt.RelativeBandSize(0.94), height=alt.RelativeBandSize(0.86))
         .encode(
             x=alt.X("Domain:N", title=None, axis=alt.Axis(orient="top", labelAngle=0, labelLimit=150)),
             y=alt.Y(f"{y}:N", title=None, sort=None, axis=alt.Axis(labelLimit=320)),

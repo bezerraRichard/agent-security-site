@@ -11,12 +11,21 @@ from pathlib import Path
 from agent_security.envfile import load_env_file
 
 APP = Path(__file__).with_name("app.py")
-THEME = {
-    "base": "light",
-    "primaryColor": "#009F98",
-    "backgroundColor": "#FFFFFF",
-    "secondaryBackgroundColor": "#EDF4F5",
-    "textColor": "#273C4E",
+# Both palettes are configured, so the console follows the system setting and the viewer can switch between light
+# and dark in the ⋮ menu.
+THEMES = {
+    "light": {
+        "primaryColor": "#009F98",
+        "backgroundColor": "#FFFFFF",
+        "secondaryBackgroundColor": "#EDF4F5",
+        "textColor": "#273C4E",
+    },
+    "dark": {
+        "primaryColor": "#00B9B2",
+        "backgroundColor": "#0F1C27",
+        "secondaryBackgroundColor": "#1B2C3A",
+        "textColor": "#E4EDEF",
+    },
 }
 
 
@@ -45,8 +54,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--server.address=localhost",  # Never expose the console on the network.
         f"--server.port={args.port}",
         "--browser.gatherUsageStats=false",
-        "--client.toolbarMode=minimal",
-        *(f"--theme.{key}={value}" for key, value in THEME.items()),
+        "--client.toolbarMode=viewer",  # Keeps the ⋮ menu (theme choice) without developer options.
+        *(f"--theme.{mode}.{key}={value}" for mode, palette in THEMES.items() for key, value in palette.items()),
     ]
     streamlit_cli.main()
     return 0

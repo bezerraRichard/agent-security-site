@@ -101,7 +101,7 @@ agent-security-console                 # abre http://localhost:8501
 agent-security-console --output-dir reports --port 8502
 ```
 
-A consola só escuta em `localhost` e não envia estatísticas de utilização. Usa a identidade visual do novobanco (paleta de www.novobanco.pt e o logótipo oficial, em `src/agent_security/console/novobanco.svg`); a fonte proprietária NovobancoText não é incluída. O relatório HTML usa a mesma identidade, com o logótipo embutido no próprio ficheiro (não carrega recursos externos). A interface está em inglês. Tem seis páginas:
+A consola só escuta em `localhost` e não envia estatísticas de utilização. Usa a identidade visual do novobanco (paleta de www.novobanco.pt e o logótipo oficial, em `src/agent_security/console/novobanco.svg`); a fonte proprietária NovobancoText não é incluída. O relatório HTML usa a mesma identidade, com o logótipo embutido no próprio ficheiro (não carrega recursos externos). A interface está em inglês e tem tema claro e escuro: por omissão segue o tema do sistema, e pode ser mudado no menu ⋮ (System, Light ou Dark). Tem seis páginas:
 
 - **New scan**: domínios (um por linha, com hosts adicionais opcionais na mesma linha), perfil de varredura (Quick, Conservative, Standard ou Custom), rede, OneTrust e confirmação obrigatória de autorização. A análise corre em segundo plano, com progresso por domínio e botão para cancelar.
 - **Dashboard**: comparação dos domínios de um lote, com indicadores, severidades, avaliações BitSight e matriz de controlos.
