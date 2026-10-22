@@ -4,20 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-security"
-version = "0.2.0"
-description = "Passive HTTP security crawler for authorized sites, with HTML/JSON reports and OneTrust cookie classification."
+version = "0.3.0"
+description = "Passive HTTP security crawler for authorized sites, with HTML/JSON reports, Bitsight-aligned rules, OneTrust cookie classification and a Streamlit console."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
+console = ["streamlit>=1.46"]
 dev = ["ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 agent-security = "agent_security.cli:main"
+agent-security-console = "agent_security.console:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"agent_security.console" = ["*.svg"]
 
 [tool.ruff]
 line-length = 120
@@ -38,3 +43,7 @@ check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true

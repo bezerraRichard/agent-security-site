@@ -1,39 +1,58 @@
-"""HTML/JSON report rendering, laid out like the earlier PDF report."""
+"""HTML/JSON report rendering, laid out like the earlier PDF report, with the novobanco visual identity."""
 
 from __future__ import annotations
 
+import base64
 import html
 import json
+import urllib.parse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_security.taxonomy import RULE_INFO, SECTIONS, SEVERITIES, section_of
+from agent_security.taxonomy import BITSIGHT_CATEGORIES, RULE_INFO, SECTIONS, SEVERITIES, bitsight_of, section_of
 
 URL_LIST_LIMIT = 200
 PAGES_TABLE_LIMIT = 1000
 
+LOGO_PATH = Path(__file__).parent / "console" / "novobanco.svg"
+
+# novobanco palette (from www.novobanco.pt), shared with the console theme.
 CSS = """
-body{font:15px/1.5 -apple-system,'Segoe UI',system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#212529}
-h1{border-bottom:1px solid #dee2e6;padding-bottom:.4rem}
-h2.section{background:#f1f3f5;border-left:4px solid #0d6efd;padding:.5rem .8rem;margin:2rem 0 .8rem;font-size:1.15rem}
-.count{background:#0d6efd;color:#fff;border-radius:1rem;padding:0 .5rem;font-size:.8rem;margin-left:.4rem}
+:root{--primary:#009f98;--primary-dark:#007179;--ink:#273c4e;--muted:#54616c;--border:#d6e4e6;--surface:#edf4f5}
+body{font:15px/1.5 -apple-system,'Segoe UI',system-ui,sans-serif;max-width:1100px;margin:0 auto 2rem;padding:0 1rem;color:var(--ink)}
+a{color:var(--primary-dark)}
+.brand{display:flex;justify-content:space-between;align-items:center;gap:1rem;border-bottom:3px solid var(--primary);padding:1.4rem 0 1rem;margin-bottom:1.2rem}
+.brand img{height:28px;display:block}.brand .product{color:var(--muted);font-size:.85rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:1.8rem;margin:.2rem 0 .3rem;color:var(--ink)}
+h2.section{background:var(--surface);border-left:4px solid var(--primary);border-radius:0 .4rem .4rem 0;padding:.5rem .8rem;margin:2rem 0 .8rem;font-size:1.15rem;color:var(--ink)}
+.count{background:var(--primary);color:#fff;border-radius:1rem;padding:0 .5rem;font-size:.8rem;margin-left:.4rem}
 table{border-collapse:collapse;width:100%;margin:.6rem 0 1.2rem;font-size:.9rem}
-th,td{border:1px solid #dee2e6;padding:.45rem .6rem;text-align:left;vertical-align:top;overflow-wrap:anywhere}
-th{background:#f8f9fa}td.detail{background:#fff;padding:.8rem 1rem}
+th,td{border:1px solid var(--border);padding:.45rem .6rem;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+th{background:var(--surface);color:var(--ink)}td.detail{background:#fff;padding:.8rem 1rem}
 code,pre{font:.8rem/1.4 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-pre{background:#f8f9fa;padding:.6rem;margin:.3rem 0}
+pre{background:var(--surface);padding:.6rem;margin:.3rem 0;border-radius:.3rem}
 .badge{display:inline-block;color:#fff;border-radius:.3rem;padding:.05rem .5rem;font-size:.8rem}
-.sev-critical{background:#8b0000}.sev-high{background:#dc3545}.sev-medium{background:#d39e00}
-.sev-low{background:#0d6efd}.sev-info{background:#6c757d}
-.cards{display:flex;gap:.8rem;flex-wrap:wrap}.card{flex:1;min-width:130px;border:1px solid #dee2e6;border-radius:.5rem;padding:.7rem;text-align:center}
-.num{font-size:1.9rem;font-weight:700}.sub,.muted{color:#6c757d;font-size:.8rem}
-.cat-ok{background:#198754}.cat-warn{background:#d39e00}.cat-muted{background:#6c757d}
-.notice{padding:.8rem 1rem;border-left:4px solid #d39e00;background:#fff8e8;margin:1rem 0}
+.sev-critical{background:#7a1f2b}.sev-high{background:#d64545}.sev-medium{background:#f2a93b}
+.sev-low{background:#3e7cb1}.sev-info{background:#808b94}
+.cards{display:flex;gap:.8rem;flex-wrap:wrap}.card{flex:1;min-width:130px;border:1px solid var(--border);border-radius:.6rem;padding:.7rem;text-align:center}
+.num{font-size:1.9rem;font-weight:700}.sub,.muted{color:var(--muted);font-size:.8rem}
+.cat-ok{background:var(--primary)}.cat-warn{background:#f2a93b}.cat-muted{background:#808b94}
+.notice{padding:.8rem 1rem;border-left:4px solid #f7d54e;background:#fffbea;margin:1rem 0;border-radius:0 .4rem .4rem 0}
 h5{margin:.8rem 0 .2rem}ul{margin:.3rem 0}
-@media print{tr,.card{break-inside:avoid}}
+footer{margin-top:2.5rem;border-top:1px solid var(--border);padding-top:.8rem}
+@media print{tr,.card{break-inside:avoid}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 """
+
+
+def logo_img() -> str:
+    """The logo as an inline data URI, so the report stays a single self-contained file."""
+    try:
+        data = base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
+    except OSError:
+        return ""
+    return f"<img src='data:image/svg+xml;base64,{data}' alt='novobanco'>"
 
 
 def esc(value: Any) -> str:
@@ -142,11 +161,17 @@ def finding_rows(group: dict, inventory: dict) -> str:
         else ""
     )
     refs = "".join(f'<li><a href="{esc(r)}">{esc(r)}</a></li>' for r in references)
+    bitsight = group.get("bitsight") or bitsight_of(group["rule"])
+    bitsight_text = (
+        f"{bitsight['vector']} — {bitsight['category']} — {bitsight['assessment']}"
+        if bitsight["vector"]
+        else "Not assessed by Bitsight"
+    )
     return (
         f"<tr><td>{badge(group['severity'])}</td><td><code>{esc(group['rule'])}</code></td>"
         f"<td>{esc(group['title'])}</td><td>{link(urls[0])}{more}</td><td>{esc(', '.join(group.get('sources') or []))}</td></tr>"
         f"<tr><td class='detail' colspan='5'><p>{esc(description)}</p><p><b>Affected pages:</b> {group['count']}</p>"
-        f"{classification}<p><b>Current value:</b> <code>{esc(group['evidence'])}</code></p>"
+        f"{classification}<p><b>Bitsight:</b> {esc(bitsight_text)}</p><p><b>Current value:</b> <code>{esc(group['evidence'])}</code></p>"
         f"<p><b>Expected:</b> <code>{esc(group['expected'])}</code></p>"
         f"<h5>Remediation</h5><pre>{esc(group['remediation'])}</pre>"
         f"{f'<h5>References:</h5><ul>{refs}</ul>' if refs else ''}"
@@ -164,6 +189,12 @@ def render_html(report: dict) -> str:
     section_rows = "".join(
         f"<tr><td>{esc(s)}</td><td>{summary['sections'][s]['distinct']}</td><td>{summary['sections'][s]['instances']}</td></tr>"
         for s in SECTIONS
+    )
+    bitsight_summary = summary.get("bitsight") or {}
+    bitsight_rows = "".join(
+        f"<tr><td>{esc(c)}</td><td>{bitsight_summary.get(c, {}).get('distinct', 0)}</td>"
+        f"<td>{bitsight_summary.get(c, {}).get('instances', 0)}</td></tr>"
+        for c in BITSIGHT_CATEGORIES
     )
     by_section: dict[str, list] = defaultdict(list)
     for group in report["groups"]:
@@ -229,12 +260,17 @@ def render_html(report: dict) -> str:
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>HTTP Security Report - {esc(report['target'])}</title><style>{CSS}</style></head><body>"
-        f"<h1>HTTP Security Report</h1><p>Started at <code>{esc(report['started_at'])}</code> — finished at "
+        f"<header class='brand'>{logo_img()}<span class='product'>HTTP Security Report</span></header>"
+        f"<h1>{esc(report['target'])}</h1><p>Started at <code>{esc(report['started_at'])}</code> — finished at "
         f"<code>{esc(report['finished_at'])}</code></p>"
         f"<div class='notice'><b>Status:</b> {esc(report['status'])}<br>{esc(report['methodology'])}</div>"
         f"<h2 class='section'>Summary by severity</h2><div class='cards'>{cards}</div>"
         "<h2 class='section'>Summary by section</h2><table><thead><tr><th>Section</th><th>Distinct issues</th>"
         f"<th>Page instances</th></tr></thead><tbody>{section_rows}</tbody></table>"
+        "<h2 class='section'>Bitsight alignment</h2><p class='muted'>Approximate mapping to the Bitsight Web "
+        "Application Security risk vector, based on Bitsight's public documentation. Bitsight assesses only each "
+        "domain's landing page; this scan covers every page crawled.</p><table><thead><tr><th>Bitsight category</th>"
+        f"<th>Distinct issues</th><th>Page instances</th></tr></thead><tbody>{bitsight_rows}</tbody></table>"
         f"<h2 class='section'>{esc(report['target'])}</h2><ul>{''.join(toc)}</ul>"
         f"<h2 class='section' id='cookie-inventory'>Cookie classification</h2>{cookie_inventory_html(report['cookies'])}"
         f"{''.join(blocks) or '<p>No confirmed findings in the pages assessed.</p>'}"
@@ -244,8 +280,8 @@ def render_html(report: dict) -> str:
         f"{f'<h4>Failed requests</h4><ul>{failed}</ul>' if failed else ''}"
         "<h2 class='section'>Pages assessed</h2><table><thead><tr><th>URL</th><th>Status</th><th>Depth</th>"
         f"<th>Source</th><th>Issues</th></tr></thead><tbody>{page_rows}</tbody></table>{page_note}"
-        "<p class='muted'>Cookie values are redacted. Only GET requests were sent. Cookie names are sent to the "
-        "configured OneTrust tenant for classification.</p></body></html>"
+        "<footer class='muted'>Cookie values are redacted. Only GET requests were sent. Cookie names are sent to the "
+        "configured OneTrust tenant for classification.</footer></body></html>"
     )
 
 
@@ -253,9 +289,11 @@ def write_reports(report: dict[str, Any], output_dir: Path) -> tuple[Path, Path]
     """Write ``<name>.html`` and ``<name>.json``; an existing report is never overwritten."""
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    host = urllib.parse.urlsplit(report["target"]).hostname or "site"
     for attempt in range(100):
-        base = output_dir / f"site-security-report-{stamp}{f'-{attempt}' if attempt else ''}"
-        html_path, json_path = base.with_suffix(".html"), base.with_suffix(".json")
+        # Built by concatenation: with_suffix() would treat the ".com-..." of the host as an extension.
+        base = f"site-security-report-{host}-{stamp}{f'-{attempt}' if attempt else ''}"
+        html_path, json_path = output_dir / f"{base}.html", output_dir / f"{base}.json"
         if html_path.exists() or json_path.exists():
             continue
         with html_path.open("x", encoding="utf-8") as html_file, json_path.open("x", encoding="utf-8") as json_file:

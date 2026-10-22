@@ -137,6 +137,15 @@ class RenderTests(unittest.TestCase):
             self.assertIn(expected, page)
         self.assertLess(page.index("id='content-security-policy'"), page.index("id='cookies'"))
 
+    def test_report_is_branded_and_self_contained(self):
+        page = rp.render_html(sample_report())
+        self.assertIn("<header class='brand'><img src='data:image/svg+xml;base64,", page)
+        self.assertIn("--primary:#009f98", page)
+        self.assertNotIn("<script", page.lower())
+        # Links are fine; loading external resources (images, styles, fonts) is not.
+        self.assertNotRegex(page, r"src=['\"]http")
+        self.assertNotIn("<link", page)
+
     def test_untrusted_content_is_escaped(self):
         page = rp.render_html(sample_report())
         self.assertNotIn("<script>alert(1)</script>", page)

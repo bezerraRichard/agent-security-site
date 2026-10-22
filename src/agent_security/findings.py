@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from agent_security.taxonomy import SECTIONS, SEVERITIES, SEVERITY_ORDER, section_of
+from agent_security.taxonomy import BITSIGHT_CATEGORIES, SECTIONS, SEVERITIES, SEVERITY_ORDER, bitsight_of, section_of
 
 _COOKIE_TITLE = re.compile(r"Cookie (\S+) missing")
 
@@ -38,6 +38,7 @@ def group_findings(findings: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
         group["count"] = len(group["urls"])
         match = _COOKIE_TITLE.match(group["title"]) if group["rule"].startswith("COOKIE-") else None
         group["cookie"] = match.group(1) if match else None
+        group["bitsight"] = bitsight_of(group["rule"])
         result.append(group)
     result.sort(key=lambda g: (SEVERITY_ORDER.get(g["severity"], 9), -g["count"], g["rule"], g["title"]))
     return result
@@ -47,9 +48,15 @@ def summarize(groups: Iterable[dict[str, Any]]) -> dict[str, dict[str, dict[str,
     summary = {
         "severity": {name: {"distinct": 0, "instances": 0} for name in SEVERITIES},
         "sections": {name: {"distinct": 0, "instances": 0} for name in SECTIONS},
+        "bitsight": {name: {"distinct": 0, "instances": 0} for name in BITSIGHT_CATEGORIES},
     }
     for group in groups:
-        for bucket in (summary["severity"][group["severity"]], summary["sections"][section_of(group["rule"])]):
+        buckets = (
+            summary["severity"][group["severity"]],
+            summary["sections"][section_of(group["rule"])],
+            summary["bitsight"][bitsight_of(group["rule"])["category"] or "Not assessed by Bitsight"],
+        )
+        for bucket in buckets:
             bucket["distinct"] += 1
             bucket["instances"] += group["count"]
     return summary

@@ -4,7 +4,7 @@ from email.message import Message
 
 from agent_security.cookies import observe_cookies, parse_set_cookie
 from agent_security.findings import group_findings, summarize
-from agent_security.taxonomy import RULE_INFO, SECTIONS, SEVERITIES, section_of
+from agent_security.taxonomy import BITSIGHT, BITSIGHT_CATEGORIES, RULE_INFO, SECTIONS, SEVERITIES, section_of
 
 SECRET_VALUE = "SESSIONVALUE-must-not-leak"
 
@@ -135,6 +135,20 @@ class FindingsTests(unittest.TestCase):
         self.assertEqual(summary["sections"]["TLS"], {"distinct": 0, "instances": 0})
         self.assertEqual(tuple(summary["severity"]), SEVERITIES)
         self.assertEqual(tuple(summary["sections"]), SECTIONS)
+
+    def test_groups_and_summary_carry_the_bitsight_alignment(self):
+        groups = group_findings([finding(rule="CSP-000", severity="High"), finding(rule="HDR-PP-001", severity="Low")])
+        by_rule = {g["rule"]: g["bitsight"] for g in groups}
+        self.assertEqual(by_rule["CSP-000"]["assessment"], "Content Security Policy Configurations")
+        self.assertIsNone(by_rule["HDR-PP-001"]["vector"])
+        bitsight = summarize(groups)["bitsight"]
+        self.assertEqual(bitsight["Cross-Site Scripting"]["distinct"], 1)
+        self.assertEqual(bitsight["Not assessed by Bitsight"]["distinct"], 1)
+
+    def test_every_rule_has_a_bitsight_mapping(self):
+        self.assertEqual(set(BITSIGHT), set(RULE_INFO))
+        for _vector, category, _assessment in BITSIGHT.values():
+            self.assertIn(category, BITSIGHT_CATEGORIES)
 
     def test_every_rule_has_guidance_and_a_known_section(self):
         for rule, (description, references) in RULE_INFO.items():

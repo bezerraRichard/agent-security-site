@@ -3,15 +3,35 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from collections.abc import Callable
 from typing import Any, TypedDict
 
 from agent_security.cookies import parse_set_cookie, stable_attributes
 
 HSTS_MIN_AGE = 31_536_000
+MAX_EVIDENCE_ITEMS = 10
 _MAX_AGE = re.compile(r"(?:^|;)\s*max-age\s*=\s*(\d+)", re.IGNORECASE)
+_PRELOAD = re.compile(r"(?:^|;)\s*preload\s*(?:;|$)", re.IGNORECASE)
 # A nonce, a hash or 'strict-dynamic' makes CSP Level 3 browsers ignore 'unsafe-inline' in scripts.
 _INLINE_OVERRIDE = re.compile(r"'(?:nonce-[^']+|sha(?:256|384|512)-[^']+|strict-dynamic)'")
+_SESSION_PARAM = re.compile(
+    r"jsessionid|phpsessid|aspsessionid\w*|asp\.net_sessionid|sessionid|session_id|sessid|sid|cfid|cftoken",
+    re.IGNORECASE,
+)
+_REFERRER_POLICIES = frozenset(
+    {
+        "no-referrer",
+        "no-referrer-when-downgrade",
+        "same-origin",
+        "origin",
+        "strict-origin",
+        "origin-when-cross-origin",
+        "strict-origin-when-cross-origin",
+        "unsafe-url",
+    }
+)
+_UNSAFE_REFERRER_POLICIES = frozenset({"unsafe-url", "no-referrer-when-downgrade"})
 
 
 class Finding(TypedDict):
@@ -85,6 +105,16 @@ def _check_hsts(headers: Any, emit: Emit) -> None:
             "max-age=31536000 or greater",
             "Review the HSTS lifetime and deployment requirements.",
         )
+    elif not _PRELOAD.search(value):
+        emit(
+            "Info",
+            "HDR-HSTS-003",
+            "Strict-Transport-Security without preload",
+            value,
+            "max-age=31536000; includeSubDomains; preload",
+            "Once every subdomain serves HTTPS, add includeSubDomains and preload and submit the domain to "
+            "hstspreload.org.",
+        )
 
 
 def _check_csp(policy: str | None, emit: Emit) -> dict[str, list[str]]:
@@ -93,7 +123,7 @@ def _check_csp(policy: str | None, emit: Emit) -> dict[str, list[str]]:
             "High",
             "CSP-000",
             "Content-Security-Policy missing",
-            "Header not present in the HTTPS response.",
+            "Neither a Content-Security-Policy header nor a CSP meta tag was present.",
             "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
             "Define and test a restrictive CSP appropriate to the site before enforcement.",
         )
@@ -181,7 +211,10 @@ def _check_cookies(headers: Any, emit: Emit) -> None:
                 "...; HttpOnly",
                 "Add HttpOnly when client-side JavaScript does not need to read the cookie.",
             )
-        if not any(flag.startswith("samesite") for flag in flags):
+        samesite = next(
+            (a.split("=", 1)[-1].strip().lower() for a in attributes if a.lower().startswith("samesite")), None
+        )
+        if samesite is None:
             emit(
                 "Medium",
                 "COOKIE-SAMESITE",
@@ -191,6 +224,91 @@ def _check_cookies(headers: Any, emit: Emit) -> None:
                 "Set an appropriate SameSite attribute; use None only when cross-site use is required "
                 "and Secure is set.",
             )
+        elif samesite == "none" and "secure" not in flags:
+            emit(
+                "High",
+                "COOKIE-SAMESITE-NONE",
+                f"Cookie {name} uses SameSite=None without Secure",
+                evidence,
+                "...; SameSite=None; Secure",
+                "Browsers reject SameSite=None cookies that are not Secure: add Secure or use SameSite=Lax.",
+            )
+
+
+def _check_referrer_policy(value: str | None, emit: Emit) -> None:
+    # Browsers apply the last policy token they recognise in a comma-separated list.
+    tokens = [token.strip().lower() for token in (value or "").split(",")]
+    effective = next((token for token in reversed(tokens) if token in _REFERRER_POLICIES), None)
+    if effective in _UNSAFE_REFERRER_POLICIES:
+        emit(
+            "Medium",
+            "HDR-REF-002",
+            "Unsafe Referrer-Policy",
+            value or "",
+            "strict-origin-when-cross-origin (or stricter)",
+            "Use strict-origin-when-cross-origin, same-origin or no-referrer so full URLs are not sent to other sites.",
+        )
+
+
+def _summarize_urls(urls: list[str], hosts_only: bool = False) -> str:
+    """Stable evidence for a URL list, so the same third parties group together across pages."""
+    if hosts_only:
+        urls = sorted({urllib.parse.urlsplit(url).hostname or url for url in urls})
+    shown = ", ".join(urls[:MAX_EVIDENCE_ITEMS])
+    return shown + (f" (+{len(urls) - MAX_EVIDENCE_ITEMS} more)" if len(urls) > MAX_EVIDENCE_ITEMS else "")
+
+
+def _check_page_content(url: str, facts: dict[str, Any], emit: Emit) -> None:
+    if url.startswith("https://"):
+        if facts.get("mixed_active"):
+            emit(
+                "High",
+                "MIXED-001",
+                "Active mixed content (scripts, styles or frames over HTTP)",
+                "Loaded over HTTP from: " + _summarize_urls(facts["mixed_active"], hosts_only=True),
+                "Every script, stylesheet and frame loaded over HTTPS",
+                "Serve these resources over HTTPS (or add CSP upgrade-insecure-requests after testing).",
+            )
+        if facts.get("mixed_passive"):
+            emit(
+                "Medium",
+                "MIXED-002",
+                "Passive mixed content (images or media over HTTP)",
+                "Loaded over HTTP from: " + _summarize_urls(facts["mixed_passive"], hosts_only=True),
+                "Every image and media file loaded over HTTPS",
+                "Serve these resources over HTTPS.",
+            )
+    if facts.get("sri_missing"):
+        emit(
+            "Low",
+            "SRI-001",
+            "Cross-origin scripts or stylesheets without Subresource Integrity",
+            "No integrity attribute on resources from: " + _summarize_urls(facts["sri_missing"], hosts_only=True),
+            '<script src="..." integrity="sha384-..." crossorigin="anonymous">',
+            "Add integrity hashes to versioned third-party files; for resources that change (tag managers), "
+            "restrict them with CSP instead.",
+        )
+
+
+def _check_session_in_url(urls: list[str], emit: Emit) -> None:
+    names: set[str] = set()
+    for url in urls:
+        parts = urllib.parse.urlsplit(url)
+        names.update(name for name, _ in urllib.parse.parse_qsl(parts.query) if _SESSION_PARAM.fullmatch(name))
+        names.update(
+            segment.split("=", 1)[0]
+            for segment in parts.path.split(";")[1:]
+            if _SESSION_PARAM.fullmatch(segment.split("=", 1)[0])
+        )
+    if names:
+        emit(
+            "High",
+            "URL-SESSION-001",
+            "Session token in URL",
+            "Session parameter(s) in the URL (values not recorded): " + ", ".join(sorted(names)),
+            "Session identifiers only in Secure, HttpOnly cookies",
+            "Disable URL-based session tracking (e.g. cookie-only session tracking mode).",
+        )
 
 
 def analyze_response(result: dict[str, Any], findings: list[Finding]) -> None:
@@ -200,6 +318,7 @@ def analyze_response(result: dict[str, Any], findings: list[Finding]) -> None:
         return
     url = result["final_url"] or result["requested_url"]
     source = result.get("source", "seed")
+    facts = result.get("facts") or {}
 
     def emit(severity: str, rule: str, title: str, evidence: str, expected: str, remediation: str) -> None:
         add_finding(
@@ -215,11 +334,14 @@ def analyze_response(result: dict[str, Any], findings: list[Finding]) -> None:
         )
 
     _check_hsts(headers, emit)
-    directives = _check_csp(headers.get("Content-Security-Policy"), emit)
+    header_policy = headers.get("Content-Security-Policy")
+    directives = _check_csp(header_policy or facts.get("meta_csp"), emit)
     for header, severity, rule, title, expected, remediation in _SIMPLE_HEADERS:
         if not headers.get(header):
             emit(severity, rule, title, f"{header} header not present.", expected, remediation)
-    if not headers.get("X-Frame-Options") and "frame-ancestors" not in directives:
+    _check_referrer_policy(headers.get("Referrer-Policy"), emit)
+    # frame-ancestors is ignored when the policy comes from a meta tag.
+    if not headers.get("X-Frame-Options") and not (header_policy and "frame-ancestors" in directives):
         emit(
             "Medium",
             "HDR-XFO-001",
@@ -229,3 +351,5 @@ def analyze_response(result: dict[str, Any], findings: list[Finding]) -> None:
             "Configure X-Frame-Options or a suitable CSP frame-ancestors directive.",
         )
     _check_cookies(headers, emit)
+    _check_page_content(url, facts, emit)
+    _check_session_in_url([result["requested_url"], url], emit)

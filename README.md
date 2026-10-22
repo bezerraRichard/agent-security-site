@@ -1,6 +1,6 @@
 # agent-security
 
-Crawler passivo de segurança HTTP. Percorre um site **autorizado**, avalia cabeçalhos de segurança, Content-Security-Policy e cookies em cada página, e gera um relatório HTML (com o mesmo layout dos relatórios em PDF) e um JSON. Pode classificar os cookies com a API de Cookie Consent da OneTrust.
+Crawler passivo de segurança HTTP. Percorre um ou mais sites **autorizados**, avalia cabeçalhos de segurança, Content-Security-Policy, cookies e conteúdo de cada página (conteúdo misto, Subresource Integrity, tokens de sessão no URL), e gera por domínio um relatório HTML e um JSON. As regras estão alinhadas com o vetor *Web Application Security* da BitSight, os cookies podem ser classificados com a API de Cookie Consent da OneTrust, e há uma consola web em Streamlit.
 
 Funciona com ou sem proxy: tenta primeiro o proxy do sistema e, se falhar, liga-se diretamente.
 
@@ -28,7 +28,7 @@ python -m venv .venv
 pip install -e .
 ```
 
-Para desenvolvimento (testes, lint e tipos), use `pip install -e ".[dev]"`.
+Para a consola, use `pip install -e ".[console]"`. Para desenvolvimento (testes, lint e tipos), use `pip install -e ".[dev]"`.
 
 ## Utilização
 
@@ -44,7 +44,12 @@ agent-security https://www.example.com/ --allow-host shop.example.com
 
 # Só as páginas de uma lista aprovada, sem seguir links
 agent-security https://www.example.com/ --urls-file urls.txt --max-depth 0
+
+# Vários domínios, um a seguir ao outro, cada um com o seu relatório
+agent-security www.example.com www.example.org --allow-host shop.example.org
 ```
+
+Com vários domínios, cada `--allow-host` junta-se ao domínio do qual é subdomínio (`shop.example.org` → `www.example.org`), cada URL de `--urls-file` vai para o domínio que autoriza o seu host, e o resumo final lista todos os domínios. Os relatórios do mesmo lote partilham um identificador (`batch.id` no JSON).
 
 `python -m agent_security` é equivalente ao comando `agent-security`.
 
@@ -54,7 +59,7 @@ O ficheiro de `--urls-file` tem um URL HTTPS por linha. Linhas vazias e comentá
 
 | Opção | Por omissão | Descrição |
 |---|---|---|
-| `target` | — | URL ou hostname de partida (apenas HTTPS, porta 443) |
+| `target` | — | Um ou mais URLs ou hostnames de partida (apenas HTTPS, porta 443) |
 | `--allow-host` | — | Hostname autorizado adicional (repetível) |
 | `--urls-file` | — | URLs aprovados adicionais, um por linha |
 | `--sitemap` | desligado | Usa também o `sitemap.xml` como ponto de partida |
@@ -76,6 +81,24 @@ O ficheiro de `--urls-file` tem um URL HTTPS por linha. Linhas vazias e comentá
 Por omissão, a ferramenta tenta o proxy do sistema ou do ambiente (`HTTPS_PROXY`, definições do Windows) e depois a ligação direta; o relatório indica a rota usada e as tentativas falhadas. Um proxy que responda `407` conta como falha.
 
 Use `--proxy http://proxy.example:8080` para forçar um proxy, `--no-proxy` para ligar diretamente, e `--ca-bundle` se o proxy fizer inspeção TLS.
+
+## Consola (Streamlit)
+
+```powershell
+pip install -e ".[console]"
+agent-security-console                 # abre http://localhost:8501
+agent-security-console --output-dir reports --port 8502
+```
+
+A consola só escuta em `localhost` e não envia estatísticas de utilização. Usa a identidade visual do novobanco (paleta de www.novobanco.pt e o logótipo oficial, em `src/agent_security/console/novobanco.svg`); a fonte proprietária NovobancoText não é incluída. O relatório HTML usa a mesma identidade, com o logótipo embutido no próprio ficheiro (não carrega recursos externos). Tem cinco páginas:
+
+- **Nova análise**: domínios (um por linha, com hosts adicionais opcionais na mesma linha), perfil de varredura (Rápido, Conservador, Padrão ou Personalizado), rede, OneTrust e confirmação obrigatória de autorização. A análise corre em segundo plano, com progresso por domínio e botão para cancelar.
+- **Painel**: comparação dos domínios de um lote, com indicadores, severidades, avaliações BitSight e matriz de controlos.
+- **Domínio**: problemas filtráveis com evidência e remediação, alinhamento BitSight, inventário de cookies, cobertura e download do HTML/JSON.
+- **Histórico**: todos os relatórios da pasta, incluindo os anteriores à consola.
+- **Regras e BitSight**: o catálogo de regras e o mapeamento para a BitSight.
+
+As credenciais da OneTrust continuam a vir só do ambiente: defina as variáveis antes de abrir a consola.
 
 ## Classificação de cookies (OneTrust)
 
@@ -109,7 +132,20 @@ Só os nomes dos cookies, nunca os valores, são enviados ao seu tenant. Um cook
 | `COOKIE-SECURE` | High | Cookie sem `Secure` |
 | `COOKIE-HTTPONLY` | Medium | Cookie sem `HttpOnly` |
 | `COOKIE-SAMESITE` | Medium | Cookie sem `SameSite` |
+| `COOKIE-SAMESITE-NONE` | High | `SameSite=None` sem `Secure` (bloqueado pelos browsers) |
+| `HDR-HSTS-003` | Info | HSTS sem `preload` |
+| `HDR-REF-002` | Medium | `Referrer-Policy` insegura (`unsafe-url`, `no-referrer-when-downgrade`) |
+| `MIXED-001` | High | Scripts, estilos ou frames carregados por HTTP numa página HTTPS |
+| `MIXED-002` | Medium | Imagens ou media carregados por HTTP numa página HTTPS |
+| `SRI-001` | Low | Scripts ou estilos de outros domínios sem `integrity` |
+| `URL-SESSION-001` | High | Identificador de sessão no URL (o valor não é registado) |
 | `TLS-HTTP-001` | High | HTTP não redireciona para HTTPS |
+
+A CSP definida em `<meta http-equiv>` também é avaliada quando não há cabeçalho (o `frame-ancestors` de uma meta tag é ignorado, como nos browsers).
+
+### Alinhamento BitSight
+
+Desde 10/07/2025, o rating da BitSight usa o vetor *Web Application Security* (WAS), que substituiu o *Web Application Headers* (WAH), agora sem nota. Cada achado indica a avaliação WAS a que corresponde (por exemplo `Content Security Policy Configurations`, `Mixed Content`, `Cookie SameSite Attribute`), ou se é só do WAH legado ou não é avaliado pela BitSight. O mapeamento é aproximado e baseado na documentação pública da BitSight. A BitSight carrega apenas a página inicial de cada domínio num browser, enquanto esta ferramenta percorre o site. Não são cobertas as avaliações WAS que precisam de um browser ou de uma base de vulnerabilidades, como bibliotecas JavaScript vulneráveis.
 
 Os problemas iguais em várias páginas são agrupados num só item, com a lista de URLs afetados.
 
@@ -129,7 +165,7 @@ Um estado `partial` ou `incomplete` nunca deve ser tratado como cobertura total 
 ## Limitações
 
 - Descobre páginas apenas por links no HTML estático. Páginas geradas por JavaScript, formulários e áreas autenticadas não são cobertas.
-- Não avalia protocolos nem cifras TLS; só verifica o redirecionamento de HTTP para HTTPS.
+- Não avalia protocolos nem cifras TLS (vetores BitSight de SSL/TLS); só verifica o redirecionamento de HTTP para HTTPS.
 - Só aceita HTTPS na porta 443 e hostnames (não IPs).
 
 ## Desenvolvimento
@@ -149,7 +185,10 @@ src/agent_security/
   urls.py       validação de URLs         analysis.py   regras de segurança
   findings.py   agrupamento e resumos     cookies.py    inventário de cookies
   onetrust.py   classificação OneTrust    report.py     relatórios HTML/JSON
-  taxonomy.py   severidades e secções
+  taxonomy.py   severidades, secções e BitSight
+  htmlfacts.py  CSP meta, conteúdo misto, SRI
+  batch.py      vários domínios por lote
+  console/      consola Streamlit (app, páginas, dados, análises em segundo plano)
 tests/          um ficheiro de testes por módulo
 ```
 

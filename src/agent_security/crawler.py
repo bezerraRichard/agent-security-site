@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
+from agent_security.htmlfacts import page_facts
 from agent_security.network import HTML_TYPES, Fetcher, FetchResult
 from agent_security.urls import hostname_of, normalize_url
 
@@ -181,6 +182,7 @@ def crawl(
             pages.append(result)
             body, result["body"] = result.get("body"), None
             if body and result["content_type"] in HTML_TYPES:
+                result["facts"] = page_facts(body, result["final_url"] or url)
                 links = extract_links(body, result["final_url"] or url)
                 if depth < max_depth:
                     for link in links:

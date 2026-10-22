@@ -1,8 +1,10 @@
 import argparse
 import json
+import tempfile
 import unittest
 from collections import Counter
 from email.message import Message
+from pathlib import Path
 from unittest import mock
 
 from agent_security import cli, scan
@@ -118,7 +120,7 @@ def headers(*pairs):
 
 
 HARDENED = (
-    ("Strict-Transport-Security", "max-age=31536000"),
+    ("Strict-Transport-Security", "max-age=31536000; preload"),
     ("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'"),
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
@@ -236,6 +238,38 @@ class CollectFindingsTests(unittest.TestCase):
         self.assertEqual(scan.collect_findings([], {"error": "refused", "final_url": None, "status": None}), [])
         self.assertEqual(scan.collect_findings([], None), [])
         self.assertEqual(scan.collect_findings([], http_probe)[0]["rule"], "TLS-HTTP-001")
+
+
+class BuildConfigsTests(unittest.TestCase):
+    def test_single_target_keeps_every_extra_host(self):
+        [cfg] = cli.build_configs(parse(START, "--allow-host", "other.example.org"), {})
+        self.assertEqual(cfg.allowed_hosts, frozenset({HOST, "other.example.org"}))
+
+    def test_several_targets_get_their_own_hosts_and_urls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            urls = Path(directory) / "urls.txt"
+            urls.write_text("https://shop.example.com/a\nhttps://example.org/b\n", encoding="utf-8")
+            configs = cli.build_configs(
+                parse(START, "example.org", "--allow-host", "shop.example.com", "--urls-file", str(urls)), {}
+            )
+        self.assertEqual([c.host for c in configs], [HOST, "example.org"])
+        self.assertEqual(configs[0].allowed_hosts, frozenset({HOST, "shop.example.com"}))
+        self.assertEqual(configs[0].seeds[1], ("https://shop.example.com/a", "approved-list"))
+        self.assertEqual(configs[1].allowed_hosts, frozenset({"example.org"}))
+        self.assertEqual(configs[1].seeds[1], ("https://example.org/b", "approved-list"))
+
+    def test_several_targets_reject_unattached_hosts_and_duplicates(self):
+        with self.assertRaises(ValueError):
+            cli.build_configs(parse(START, "example.org", "--allow-host", "elsewhere.net"), {})
+        with self.assertRaises(ValueError):
+            cli.build_configs(parse(START, START), {})
+
+    def test_main_with_several_targets_runs_a_batch(self):
+        rows = [{"target": START, "status": "complete: ok"}, {"target": "https://example.org/", "status": "partial: x"}]
+        with mock.patch.object(cli, "run_batch", return_value=rows) as run, mock.patch("builtins.print") as printed:
+            self.assertEqual(cli.main([START, "example.org", "--quiet"]), 2)
+        self.assertEqual(len(run.call_args[0][0]), 2)
+        self.assertEqual(json.loads(printed.call_args[0][0])["domains"], rows)
 
 
 class MainTests(unittest.TestCase):
