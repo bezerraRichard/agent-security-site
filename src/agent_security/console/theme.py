@@ -66,12 +66,19 @@ h1, h2, h3 {{ letter-spacing: -0.01em; }}
   {RAIL} {{ transform:none !important; min-width:4rem !important; max-width:4rem !important; width:4rem !important;
     visibility:visible !important; }}
   {RAIL} [data-testid="stSidebarHeader"], {RAIL} [data-testid="stSidebarUserContent"] {{ display:none !important; }}
+  {RAIL} [data-testid="stSidebarContent"] {{ padding-left:.4rem !important; padding-right:.4rem !important;
+    overflow-x:hidden; }}
+  /* Full-width links: otherwise they shrink to a few pixels and their highlight draws a line over the icon. */
+  {RAIL} [data-testid="stSidebarNav"], {RAIL} [data-testid="stSidebarNavItems"] {{ width:100% !important;
+    padding-left:0 !important; padding-right:0 !important; margin-left:0 !important; margin-right:0 !important; }}
   {RAIL} [data-testid="stSidebarNav"] {{ padding-top:3.75rem; }}
-  {RAIL} [data-testid="stSidebarNavItems"] {{ padding:0 .55rem; }}
   {RAIL} [data-testid="stNavSectionHeader"] {{ font-size:0 !important; height:1px; padding:0 !important;
     margin:.6rem .3rem !important; background:var(--border); }}
   {RAIL} [data-testid="stSidebarNavItems"] > :first-child[data-testid="stNavSectionHeader"] {{ display:none; }}
-  {RAIL} [data-testid="stSidebarNavLink"] {{ justify-content:center; padding:.55rem 0 !important; min-height:2.5rem; }}
+  {RAIL} [data-testid="stSidebarNavLink"] {{ justify-content:center; padding:.55rem 0 !important; min-height:2.5rem;
+    width:100%; border-radius:8px; }}
+  /* The links are as narrow as the icon here, so the active page is a tint instead of the left bar over the icon. */
+  {RAIL} [data-testid="stSidebarNavLink"][aria-current="page"] {{ box-shadow:none; background:rgba(0,159,152,.16); }}
   {RAIL} [data-testid="stSidebarNavLink"] [data-testid="stIconMaterial"] {{ font-size:1.35rem; }}
   /* Page names stay readable by screen readers, just not shown. */
   {RAIL} [data-testid="stSidebarNavLink"] > span:last-child {{ position:absolute !important; width:1px; height:1px;
