@@ -43,6 +43,7 @@ BITSIGHT_CELL_STYLES = {
     "Present": f"background-color:rgba(0,159,152,.18);color:{PRIMARY};font-weight:600",
 }
 STATUS_TONES = {"Complete": "ok", "Partial": "warn", "Incomplete": "bad"}
+RAIL = 'section[data-testid="stSidebar"][data-collapsed="true"]'
 
 CSS = f"""
 <style>
@@ -60,6 +61,22 @@ h1, h2, h3 {{ letter-spacing: -0.01em; }}
 [data-testid="stSidebar"] [data-testid="stNavSectionHeader"] {{ color:{SUBTLE}; text-transform:uppercase;
   letter-spacing:.08em; font-size:.7rem; font-weight:700; }}
 [data-testid="stSidebarHeader"] img {{ height:1.9rem; max-width:100%; }}
+/* Collapsed sidebar: keep a rail with the page icons instead of hiding the navigation (wide screens only). */
+@media (min-width: 640px) {{
+  {RAIL} {{ transform:none !important; min-width:4rem !important; max-width:4rem !important; width:4rem !important;
+    visibility:visible !important; }}
+  {RAIL} [data-testid="stSidebarHeader"], {RAIL} [data-testid="stSidebarUserContent"] {{ display:none !important; }}
+  {RAIL} [data-testid="stSidebarNav"] {{ padding-top:3.75rem; }}
+  {RAIL} [data-testid="stSidebarNavItems"] {{ padding:0 .55rem; }}
+  {RAIL} [data-testid="stNavSectionHeader"] {{ font-size:0 !important; height:1px; padding:0 !important;
+    margin:.6rem .3rem !important; background:var(--border); }}
+  {RAIL} [data-testid="stSidebarNavItems"] > :first-child[data-testid="stNavSectionHeader"] {{ display:none; }}
+  {RAIL} [data-testid="stSidebarNavLink"] {{ justify-content:center; padding:.55rem 0 !important; min-height:2.5rem; }}
+  {RAIL} [data-testid="stSidebarNavLink"] [data-testid="stIconMaterial"] {{ font-size:1.35rem; }}
+  /* Page names stay readable by screen readers, just not shown. */
+  {RAIL} [data-testid="stSidebarNavLink"] > span:last-child {{ position:absolute !important; width:1px; height:1px;
+    overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }}
+}}
 .product {{ font-size:.78rem; font-weight:700; letter-spacing:.02em; margin:0 0 .5rem; }}
 .side-meta {{ font-size:.76rem; color:{SUBTLE}; line-height:1.7; }}
 .side-meta b {{ color:inherit; font-weight:600; }}
@@ -91,7 +108,7 @@ h1, h2, h3 {{ letter-spacing: -0.01em; }}
 .kv dt {{ opacity:.7; }} .kv dd {{ margin:0; overflow-wrap:anywhere; }}
 .evidence {{ font-family:Consolas,'SFMono-Regular',monospace; font-size:.8rem; background:var(--surface);
   border:1px solid var(--border); border-radius:8px; padding:.55rem .7rem; overflow-wrap:anywhere;
-  white-space:pre-wrap; }}
+  white-space:pre-wrap; max-height:16rem; overflow-y:auto; }}
 .domain-progress {{ font-size:.82rem; opacity:.75; overflow-wrap:anywhere; }}
 div[data-testid="stTabs"] button p {{ font-weight:600; }}
 div[data-testid="stTabs"] button[aria-selected="true"] p {{ color:var(--primary); }}

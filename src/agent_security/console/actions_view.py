@@ -20,7 +20,7 @@ from agent_security.console.categorize import (
     read_audit,
 )
 from agent_security.console.dashboard_view import batch_picker
-from agent_security.console.data import load_plan_state, platform_rows, save_action_state
+from agent_security.console.data import SEVERITY_LABELS, load_plan_state, platform_rows, save_action_state
 from agent_security.fingerprint import AEM_CLOUD
 from agent_security.onetrust import (
     MAX_CHANGES_PER_RUN,
@@ -54,21 +54,41 @@ def _action_card(action: Action, saved: dict) -> None:
             else ""
         )
         title = theme.esc(action.title.replace("`", ""))
+        severity = theme.severity_badge(SEVERITY_LABELS.get(action.severity, action.severity))
         st.html(
-            f"{_priority_badge(action.priority)} &nbsp;<b style='font-size:1.02rem'>{title}</b>"
+            f"{_priority_badge(action.priority)} {severity}"
+            f" &nbsp;<b style='font-size:1.02rem'>{title}</b>"
             f"{warning}<div class='domain-progress' style='margin-top:.35rem'>"
             f"{theme.esc(saved.get('owner') or action.owner)} · effort {theme.esc(action.effort.lower())} · "
             f"{theme.esc(', '.join(action.domains))} · {action.pages} pages"
             + (f" · BitSight: {theme.esc(action.bitsight)}" if action.bitsight else "")
             + "</div>"
         )
-        with st.expander("How to fix"):
+        # Critical and P1 actions open with the fix visible; the others stay compact.
+        with st.expander("How to fix", expanded=action.priority == "P1" or action.severity == "Critical"):
             st.caption(action.why)
+            if action.evidence:
+                observed, expected = st.columns(2)
+                observed.markdown("**Observed**")
+                observed.markdown(f"<div class='evidence'>{theme.esc(action.evidence)}</div>", unsafe_allow_html=True)
+                expected.markdown("**Expected**")
+                expected.markdown(f"<div class='evidence'>{theme.esc(action.expected)}</div>", unsafe_allow_html=True)
+            st.markdown("**Steps**")
             st.markdown("\n".join(f"{n}. {step}" for n, step in enumerate(action.steps, start=1)))
             if action.snippet:
+                st.markdown("**Suggested change**")
                 st.code(action.snippet, language=action.snippet_language)
             st.markdown("**Verification**")
             st.code(action.verify, language="bash")
+            if action.urls:
+                more = f" (first {len(action.urls)} of {action.pages})" if action.pages > len(action.urls) else ""
+                st.markdown(f"**Affected pages{more}**")
+                st.dataframe(
+                    pd.DataFrame({"URL": action.urls}),
+                    hide_index=True,
+                    width="stretch",
+                    column_config={"URL": st.column_config.LinkColumn()},
+                )
         columns = st.columns([1.2, 1.6, 2.2])
         columns[0].selectbox(
             "Status",
@@ -97,14 +117,17 @@ def _action_card(action: Action, saved: dict) -> None:
 
 
 def _actions_tab(plan: list[Action], saved: dict) -> None:
-    filters = st.columns([2, 3, 2])
+    filters = st.columns([2, 2, 3, 2])
     priorities = filters[0].multiselect("Priority", list(PRIORITY_COLORS), placeholder="All", help=PRIORITY_HELP)
-    owners = filters[1].multiselect("Owner", sorted({a.owner for a in plan}), placeholder="All")
-    statuses = filters[2].multiselect("Status", list(STATUSES), placeholder="All")
+    present = [s for s in SEVERITY_LABELS if any(a.severity == s for a in plan)]
+    severities = filters[1].multiselect("Severity", present, placeholder="All")
+    owners = filters[2].multiselect("Owner", sorted({a.owner for a in plan}), placeholder="All")
+    statuses = filters[3].multiselect("Status", list(STATUSES), placeholder="All")
     visible = [
         action
         for action in plan
         if (not priorities or action.priority in priorities)
+        and (not severities or action.severity in severities)
         and (not owners or action.owner in owners)
         and (not statuses or (saved.get(action.key, {}).get("status") or STATUSES[0]) in statuses)
     ]
@@ -314,11 +337,17 @@ def render() -> None:
     saved = load_plan_state(state.reports_dir())
 
     counts = Counter(action.priority for action in plan)
+    severities = Counter(action.severity for action in plan)
     statuses = Counter(saved.get(a.key, {}).get("status") or STATUSES[0] for a in plan)
     theme.kpi_row(
         [
             theme.kpi("Actions", len(plan), f"{len(batch.reports)} domains", "info"),
-            theme.kpi("P1 · fix now", counts["P1"], "critical or wide-reaching", "bad" if counts["P1"] else "ok"),
+            theme.kpi(
+                "P1 · fix now",
+                counts["P1"],
+                f"{severities['Critical']} critical · {severities['High']} high",
+                "bad" if counts["P1"] else "ok",
+            ),
             theme.kpi("P2 · next cycle", counts["P2"], "high priority", "warn" if counts["P2"] else "ok"),
             theme.kpi("In progress", statuses["In progress"], "with an owner", "info"),
             theme.kpi(

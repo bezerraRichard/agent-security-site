@@ -142,5 +142,41 @@ class OutputTests(unittest.TestCase):
         self.assertIn("```yaml", markdown)
 
 
+class CriticalActionTests(unittest.TestCase):
+    POLICIES = "object-src 'none' | default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' cdn.example"
+
+    def csp_report(self, host="a.example.com", platform=None):
+        data = report(host, [("CSP-002", "Critical", "CSP allows unsafe-eval", n) for n in range(3)], platform)
+        for group in data["groups"]:
+            group["evidence"] = self.POLICIES
+        return data
+
+    def test_fix_csp_only_touches_script_directives(self):
+        policy = "default-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; script-src 'unsafe-inline' a.example"
+        fixed = actions.fix_csp(policy, "'unsafe-inline'", (actions.NONCE, "'strict-dynamic'"))
+        self.assertEqual(
+            fixed,
+            "default-src 'self' 'nonce-{RANDOM_PER_RESPONSE}' 'strict-dynamic'; style-src 'unsafe-inline'; "
+            "script-src a.example 'nonce-{RANDOM_PER_RESPONSE}' 'strict-dynamic'",
+        )
+
+    def test_critical_action_carries_evidence_urls_and_the_corrected_policy(self):
+        action = actions.build_actions([self.csp_report(platform=AEM_CLOUD_PLATFORM)])[0]
+        self.assertEqual((action.key, action.severity, action.priority), ("CSP-002", "Critical", "P1"))
+        self.assertEqual(action.evidence, self.POLICIES)
+        self.assertEqual(action.urls, [f"https://a.example.com/{n}" for n in range(3)])
+        self.assertIn("respHeader: Content-Security-Policy-Report-Only", action.snippet)
+        self.assertIn("script-src 'self' 'unsafe-inline' cdn.example", action.snippet)
+        self.assertNotIn("object-src", action.snippet)  # Policies that allow no unsafe-eval stay as they are.
+        self.assertIn("grep -c \"'unsafe-eval'\"", action.verify)
+        markdown = actions.markdown_plan([action], {}, "Plan")
+        self.assertIn("**Observed:**", markdown)
+
+    def test_page_level_rules_get_a_real_verification_command(self):
+        plan = {a.key: a for a in actions.build_actions([report("a.example.com", [("SRI-001", "Low", "SRI", 1)])])}
+        self.assertIn("grep -vi integrity", plan["SRI-001"].verify)
+        self.assertNotIn('grep -i "^"', plan["SRI-001"].verify)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,7 @@ LEGACY_STATUSES = dict(zip(("Por fazer", "Em curso", "Feito", "Risco aceite"), S
 ONETRUST_COOKIES = ("OptanonConsent", "OptanonAlertBoxClosed", "eupubconsent", "OTAdditionalConsentString")
 NECESSARY_HINTS = ("necess", "essential", "essencia", "strictly", "estritamente")
 ONETRUST_UPDATE_COOKIE = "PUT /api/cookiemanager/v1/cookies"
+MAX_ACTION_URLS = 20
 
 
 @dataclass
@@ -39,6 +40,9 @@ class Action:
     rules: list[str] = field(default_factory=list)
     domains: list[str] = field(default_factory=list)
     pages: int = 0
+    evidence: str = ""  # What the scan observed (e.g. the current header value).
+    expected: str = ""
+    urls: list[str] = field(default_factory=list)  # A sample of the affected pages.
 
     @property
     def score(self) -> float:
@@ -196,6 +200,56 @@ def _header(rule_header: str, value: str, title: str, effort: str, why: str) -> 
     return Playbook(title, effort, why, _header_steps(rule_header, value), header=rule_header, value=value)
 
 
+SCRIPT_DIRECTIVES = ("script-src", "script-src-elem", "default-src")
+NONCE = "'nonce-{RANDOM_PER_RESPONSE}'"
+
+
+def fix_csp(policy: str, token: str, replacement: tuple[str, ...] = ()) -> str:
+    """``policy`` with ``token`` removed from the directives that control scripts, adding ``replacement`` there."""
+    directives = []
+    for directive in (part.strip() for part in policy.split(";")):
+        words = directive.split()
+        if words and words[0].lower() in SCRIPT_DIRECTIVES and token in words[1:]:
+            kept = [word for word in words[1:] if word != token]
+            words = [words[0], *kept, *(word for word in replacement if word not in kept)]
+        if words:
+            directives.append(" ".join(words))
+    return "; ".join(directives)
+
+
+Snippet = Callable[[Platform, dict[str, Any]], tuple[str, str]]
+
+
+def _csp_snippet(token: str, replacement: tuple[str, ...] = ()) -> Snippet:
+    """The observed policies rewritten without ``token``, to publish as Report-Only first."""
+
+    def snippet(platform: Platform, group: dict[str, Any]) -> tuple[str, str]:
+        policies = [p.strip() for p in str(group.get("evidence") or "").split(" | ") if token in p]
+        parts, language = [], "text"
+        for index, policy in enumerate(policies, start=1):
+            proposed = fix_csp(policy, token, replacement)
+            text, language = header_snippet(platform, "Content-Security-Policy-Report-Only", proposed)
+            label = f" (policy {index} of {len(policies)})" if len(policies) > 1 else ""
+            parts.append(f"# Proposed policy without {token}{label}: test it as Report-Only, then enforce it.\n{text}")
+        return "\n".join(parts), language
+
+    return snippet
+
+
+def _csp_verify(token: str) -> Callable[[str, dict[str, Any]], str]:
+    return lambda domain, group: (
+        f'curl -sI https://{domain}/ | grep -i "^content-security-policy:" | grep -c "{token}"  # expect 0'
+    )
+
+
+def _page_verify(pattern: str, invert: str = "") -> Callable[[str, dict[str, Any]], str]:
+    def verify(domain: str, group: dict[str, Any]) -> str:
+        url = (group.get("urls") or [f"https://{domain}/"])[0]
+        return f"curl -s {url} | grep -oiE '{pattern}'" + (f" | grep -vi {invert}" if invert else "")
+
+    return verify
+
+
 HSTS = "max-age=31536000; includeSubDomains"
 PLAYBOOKS: dict[str, Playbook] = {
     "HDR-HSTS-001": _header(
@@ -274,6 +328,8 @@ PLAYBOOKS: dict[str, Playbook] = {
             "Publish the policy without `'unsafe-eval'` once there are no violations.",
         ),
         owner=_frontend_owner,
+        verify=_csp_verify("'unsafe-eval'"),
+        snippet=_csp_snippet("'unsafe-eval'"),
     ),
     "CSP-003": Playbook(
         "Replace 'unsafe-inline' with nonces or hashes",
@@ -285,6 +341,8 @@ PLAYBOOKS: dict[str, Playbook] = {
             "Remove `'unsafe-inline'` after validating in Report-Only.",
         ),
         owner=_frontend_owner,
+        verify=_csp_verify("'unsafe-inline'"),
+        snippet=_csp_snippet("'unsafe-inline'", (NONCE, "'strict-dynamic'")),
     ),
     "CSP-004": Playbook(
         "Enforce the Report-Only CSP",
@@ -341,6 +399,7 @@ PLAYBOOKS: dict[str, Playbook] = {
             "As a safety net, add `upgrade-insecure-requests` to the CSP.",
         ),
         owner=_content_owner,
+        verify=_page_verify('(src|href)="http://[^"]+"'),
     ),
     "MIXED-002": Playbook(
         "Remove passive mixed content",
@@ -348,6 +407,7 @@ PLAYBOOKS: dict[str, Playbook] = {
         "Images loaded over HTTP can be replaced in transit.",
         _code_steps("Update the http:// references in images and media to https://."),
         owner=_content_owner,
+        verify=_page_verify('src="http://[^"]+"'),
     ),
     "SRI-001": Playbook(
         "Protect third-party scripts",
@@ -364,6 +424,7 @@ PLAYBOOKS: dict[str, Playbook] = {
             + "), SRI does not work: restrict them with the CSP instead.",
         ],
         owner=_frontend_owner,
+        verify=_page_verify('<script[^>]+src="https?://[^"]+"[^>]*>', "integrity"),
     ),
     "URL-SESSION-001": Playbook(
         "Remove session identifiers from URLs",
@@ -374,6 +435,7 @@ PLAYBOOKS: dict[str, Playbook] = {
             "Redirect URLs carrying the parameter to the version without it.",
         ),
         owner=lambda platform, group: "Application team",
+        verify=lambda domain, group: f"agent-security https://{domain}/ --max-pages 50  # the finding must be gone",
     ),
     "TLS-HTTP-001": Playbook(
         "Redirect HTTP to HTTPS",
@@ -393,6 +455,7 @@ def _build(rule: str, key: str, group: dict[str, Any], platform: Platform, domai
         return Action(
             key, group["title"], group["severity"], platform.header_owner(), "Medium", group["title"],
             [group["remediation"]], f"curl -sI https://{domain}/", bitsight=was, rules=[rule],
+            evidence=group.get("evidence") or "", expected=group.get("expected") or "",
         )  # fmt: skip
     snippet, language = ("", "text")
     if playbook.snippet:
@@ -418,14 +481,17 @@ def _build(rule: str, key: str, group: dict[str, Any], platform: Platform, domai
         snippet_language=language,
         bitsight=was,
         rules=[rule],
+        evidence=group.get("evidence") or "",
+        expected=group.get("expected") or "",
     )
 
 
-def _merge(actions: dict[str, Action], action: Action, domain: str, pages: int) -> None:
+def _merge(actions: dict[str, Action], action: Action, domain: str, pages: int, urls: Iterable[str] = ()) -> None:
     current = actions.setdefault(action.key, action)
     if domain not in current.domains:
         current.domains.append(domain)
     current.pages += pages
+    current.urls.extend(url for url in urls if url not in current.urls and len(current.urls) < MAX_ACTION_URLS)
     if SEVERITY_ORDER.get(action.severity, 9) < SEVERITY_ORDER.get(current.severity, 9):
         current.severity = action.severity
 
@@ -557,7 +623,7 @@ def build_actions(reports: Iterable[dict[str, Any]]) -> list[Action]:
         for group in report["groups"]:
             rule = group["rule"]
             key = f"{rule}:{group['cookie']}" if group.get("cookie") else rule
-            _merge(actions, _build(rule, key, group, platform, domain), domain, group["count"])
+            _merge(actions, _build(rule, key, group, platform, domain), domain, group["count"], group.get("urls") or [])
     _link_report_only_policy(actions)
     result = list(actions.values()) + _onetrust_actions(entries)
     result.sort(key=lambda a: (-a.score, SEVERITY_ORDER.get(a.severity, 9), a.title))
@@ -627,6 +693,8 @@ def markdown_plan(actions: Iterable[Action], state: dict[str, dict[str, Any]], t
         if action.bitsight:
             lines.append(f"- **BitSight (WAS):** {action.bitsight}")
         lines += ["", action.why, ""]
+        if action.evidence:
+            lines += [f"- **Observed:** `{action.evidence}`", f"- **Expected:** `{action.expected}`", ""]
         lines += [f"{n}. {step}" for n, step in enumerate(action.steps, start=1)]
         if action.snippet:
             lines += ["", f"```{action.snippet_language}", action.snippet.rstrip(), "```"]
