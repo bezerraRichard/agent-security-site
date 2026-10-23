@@ -12,6 +12,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from agent_security import pac
+
 USER_AGENT = "HTTP-Security-Report/2.0 (passive; authorized assessment)"
 MAX_BODY_BYTES = 2_000_000
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
@@ -61,8 +63,14 @@ def parse_proxy(value: str) -> str:
     return candidate
 
 
-def candidate_routes(proxy: str | None, no_proxy: bool, fallback_direct: bool) -> list[Route]:
-    """Routes to try in order: an explicit proxy, else the system proxy, always ending with a direct route."""
+def candidate_routes(
+    proxy: str | None, no_proxy: bool, fallback_direct: bool, target_url: str | None = None
+) -> list[Route]:
+    """Routes to try in order: an explicit proxy, else the system proxy, always ending with a direct route.
+
+    The system proxy is the fixed one from the environment or system settings, or else the one the system's PAC
+    script gives for ``target_url`` (as the browser would use).
+    """
     direct = Route("direct (no proxy)", {})
     if no_proxy:
         return [direct]
@@ -73,7 +81,11 @@ def candidate_routes(proxy: str | None, no_proxy: bool, fallback_direct: bool) -
     endpoint = system.get("https") or system.get("http")
     if endpoint:
         return [Route(f"system proxy {proxy_label(endpoint)}", None), direct]
-    return [direct]
+    found = pac.lookup(target_url) if target_url else pac.PacLookup()
+    if found.proxy:
+        auto = Route(f"system proxy (PAC) {proxy_label(found.proxy)}", {"http": found.proxy, "https": found.proxy})
+        return [auto, direct]
+    return [Route(f"direct (no proxy; {found.note})", {})] if found.note else [direct]
 
 
 def build_opener(route: Route, allowed_hosts: Iterable[str], context: ssl.SSLContext) -> urllib.request.OpenerDirector:

@@ -58,7 +58,7 @@ def build_changes(cookies: Iterable[dict[str, Any]], category_id: str) -> list[C
 def make_write_client(config: OneTrustConfig, timeout: float = 20.0) -> OneTrustClient:
     """Same routing as the scans: system proxy first when there is one, then a direct connection."""
     context = ssl.create_default_context()
-    routes = candidate_routes(None, False, False)
+    routes = candidate_routes(None, False, False, f"https://{config.hostname}/")
     openers = [(route.name, onetrust.build_opener(route.proxies, context)) for route in routes]
     return OneTrustClient(config, openers, timeout)
 

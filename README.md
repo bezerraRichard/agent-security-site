@@ -2,7 +2,7 @@
 
 Crawler passivo de segurança HTTP. Percorre um ou mais sites **autorizados**, avalia cabeçalhos de segurança, Content-Security-Policy, cookies e conteúdo de cada página (conteúdo misto, Subresource Integrity, tokens de sessão no URL), e gera por domínio um relatório HTML e um JSON. As regras estão alinhadas com o vetor *Web Application Security* da BitSight, os cookies podem ser classificados com a API de Cookie Consent da OneTrust, e há uma consola web em Streamlit.
 
-Funciona com ou sem proxy: tenta primeiro o proxy do sistema e, se falhar, liga-se diretamente.
+Funciona com ou sem proxy: tenta primeiro o proxy do sistema (incluindo o script PAC da VPN, como o browser) e, se falhar, liga-se diretamente.
 
 ## Uso autorizado
 
@@ -90,6 +90,16 @@ O ficheiro de `--urls-file` tem um URL HTTPS por linha. Linhas vazias e comentá
 ### Proxy
 
 Por omissão, a ferramenta tenta o proxy do sistema ou do ambiente (`HTTPS_PROXY`, definições do Windows) e depois a ligação direta; o relatório indica a rota usada e as tentativas falhadas. Um proxy que responda `407` conta como falha.
+
+Quando não há proxy fixo mas existe configuração automática de proxy (script PAC, comum em VPNs corporativas), a ferramenta usa o proxy que esse script indica para o domínio analisado, tal como o browser. A rota aparece como `system proxy (PAC) host:porta`:
+
+| Sistema | Onde encontra o script | Como o avalia |
+|---|---|---|
+| Windows | Definições de proxy do Windows (script PAC ou deteção automática WPAD) | WinHTTP, o mesmo motor do sistema; sem dependências |
+| macOS | Definições de rede (`scutil --proxy`) | Pacote opcional `pypac`: `pip install -e ".[pac]"` |
+| Linux | GNOME (`gsettings`) ou KDE (`kioslaverc`) | Pacote opcional `pypac`: `pip install -e ".[pac]"` |
+
+Em qualquer sistema, `AGENT_SECURITY_PAC_URL` (no ambiente ou no `.env`) indica o script explicitamente. A deteção automática WPAD só é suportada no Windows. Se o script existir mas não puder ser usado (inacessível, ou `pypac` não instalado), a análise continua por ligação direta e a rota indica o motivo, por exemplo `direct (no proxy; PAC script found but not evaluated: …)`. Proxies que exijam autenticação Windows (NTLM/Kerberos) não são suportados.
 
 Use `--proxy http://proxy.example:8080` para forçar um proxy, `--no-proxy` para ligar diretamente, e `--ca-bundle` se o proxy fizer inspeção TLS.
 

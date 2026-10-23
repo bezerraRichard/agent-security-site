@@ -19,7 +19,7 @@ STATE_LABELS = {
     "cancelled": ("Cancelled", "neutral"),
 }
 ROUTES = {
-    "auto": "Automatic (system proxy, then direct)",
+    "auto": "Automatic (system proxy or PAC script, then direct)",
     "proxy": "Explicit proxy",
     "direct": "Direct connection",
 }

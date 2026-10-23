@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 console = ["streamlit>=1.46"]
+pac = ["pypac>=0.18"]  # Evaluates PAC proxy scripts on macOS and Linux (Windows uses WinHTTP).
 dev = ["ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
@@ -45,5 +46,5 @@ warn_redundant_casts = true
 no_implicit_optional = true
 
 [[tool.mypy.overrides]]
-module = ["pandas", "pandas.*"]
+module = ["pandas", "pandas.*", "pypac", "pypac.*"]
 ignore_missing_imports = true

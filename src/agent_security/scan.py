@@ -103,7 +103,7 @@ def run_scan(config: ScanConfig, progress: Progress | None = None) -> dict[str, 
     """Run a full scan and return the report as a JSON-serialisable dict."""
     started_at = datetime.now(timezone.utc)
     context = ssl.create_default_context(cafile=config.ca_bundle)
-    routes = candidate_routes(config.proxy, config.no_proxy, config.fallback_direct)
+    routes = candidate_routes(config.proxy, config.no_proxy, config.fallback_direct, config.start_url)
     route, fetch, attempts = select_route(
         routes, config.start_url, config.allowed_hosts, config.timeout, config.retries, context
     )
